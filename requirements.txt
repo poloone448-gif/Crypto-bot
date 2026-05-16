@@ -4,6 +4,6 @@ numpy
 pandas
 ta
 scikit-learn
-tensorflow-cpu
-keras
 matplotlib
+tensorflow
+keras
