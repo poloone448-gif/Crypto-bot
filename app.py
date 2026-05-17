@@ -2421,7 +2421,7 @@ class RegimeTransitionDetector:
 
         atr_pct = df1h["ATR_Percentile"].iloc[-1]
         chg_2bars = abs(df1h["close"].iloc[-1] / df1h["close"].iloc[-3] - 1) * 100 if len(df1h) >= 3 else 0
-        if atr_pct > 90 or chg_2bars > 4:
+        if atr_pct > 95 or chg_2bars > 6:
             return TransitionAlert(from_regime=primary, likely_to="VOLATILE_SPIKE", confidence=0.9,
                                    bars_until=0, action="HOLD", reason="Extreme volatility spike")
 
@@ -2471,7 +2471,7 @@ class MetaSignalFusion:
              divergences: tuple, regime_memory: RegimeMemory,
              price: float, df: pd.DataFrame) -> FusedSignal:
 
-        if transition_alert.action == "HOLD":
+        if transition_alert.action == "HOLD" and transition_alert.confidence >= 0.80:
             return FusedSignal(signal="HOLD", confidence=0, entry_price=price, entry_type="NONE",
                                quality_score=0, skip_reason=f"Regime transition: {transition_alert.reason}",
                                regime_override=True, size_modifier=0, tp_strategy="NONE",
@@ -3147,7 +3147,7 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         print(row("From → To",  C.y(f"{transition_alert.from_regime} → {transition_alert.likely_to}")))
         print(row("Action",     C.r(transition_alert.action) if transition_alert.action!="ALLOW" else C.g(transition_alert.action)))
         print(row("Reason",     transition_alert.reason))
-        if regime_state.transition_prob > 0.70 or transition_alert.action == "HOLD" or transition_alert.bars_until <= 1:
+        if regime_state.transition_prob > 0.85 or transition_alert.action == "HOLD" or transition_alert.bars_until <= 0.85):
             print(C.r("  🚫 REGIME GATE: transition imminent — skip signal"))
             result = {"signal": "HOLD", "reason": "Regime transition gate",
                       "transition": f"{transition_alert.from_regime}→{transition_alert.likely_to}",
