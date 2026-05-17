@@ -392,14 +392,16 @@ def show_dashboard():
     if run:
         with st.spinner("🧠 Regime Brain Analyzing..."):
             try:
-                # Call the fixed run_bot with user parameters
                 result = run_bot(symbol, balance)
-                if result:
+                # ---- یہ تین لائنیں شامل کی ہیں ----
+                st.write("🔎 Result keys:", list(result.keys()) if result else "None")
+                if result and result.get("signal"):
                     show_result(result)
                 else:
-                    st.error("⛔ Bot returned no result — check exchange connection")
+                    st.error("⛔ Bot returned no result or HOLD with zero values")
             except Exception as e:
                 st.error(f"⛔ Error: {str(e)}")
+                st.exception(e)   # پوری traceback دکھائے گا
 
 # ═══════════════════════════════════════════════════════════════
 #  PASTE YOUR ENTIRE ORIGINAL V11 CODE BELOW THIS LINE
@@ -428,7 +430,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
-# No more TensorFlow env variable
 
 # ── Third-party ───────────────────────────────────────────────────────────────
 import numpy as np
@@ -521,8 +522,8 @@ ADDON_SIZE_WEIGHT    = 0.40
 ADDON_UNAVAIL_FLOOR  = 3.0
 
 # ── Sklearn Ensemble ──────────────────────────────────────────────────────────
-SKLEARN_N_MODELS = 3          # MLP + GBR + ExtraTrees
-SEQUENCE_LENGTH = 30          # Reduced from 60 for memory optimization
+SKLEARN_N_MODELS = 3
+SEQUENCE_LENGTH = 30      # Reduced from 60 for memory optimization
 
 # ── Probability TP Engine ─────────────────────────────────────────────────────
 PTP_ATR_MIN      = 0.3
@@ -2967,7 +2968,6 @@ def position_size(entry: float, sl: float, balance: float=ACCOUNT_BALANCE,
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 def prepare_sequences(df: pd.DataFrame, seq_len: int = SEQUENCE_LENGTH) -> tuple:
-    """Prepare flattened sequences for sklearn models."""
     feats = [c for c in ["close","RSI_14","MACD","MACD_Hist","ATR","OBV",
                          "EMA_9","BB_Width","Volume_Ratio","ADX","Stoch_K","ST_Direction","MFI_14"]
              if c in df.columns]
@@ -2978,13 +2978,11 @@ def prepare_sequences(df: pd.DataFrame, seq_len: int = SEQUENCE_LENGTH) -> tuple
 
     X, y = [], []
     for i in range(seq_len, len(scaled)):
-        # Flatten the sequence
         X.append(scaled[i-seq_len:i].flatten())
-        y.append(scaled[i, 0])  # close price is first feature
+        y.append(scaled[i, 0])
 
     X = np.array(X)
     y = np.array(y)
-    # Also keep a separate scaler for the target (close price)
     close_scaler = MinMaxScaler((0,1)).fit(df[["close"]])
     return X, y, scaler, close_scaler, feats
 
@@ -2995,14 +2993,12 @@ def _cache_key_sklearn(X: np.ndarray, model_name: str) -> str:
 
 
 def train_sklearn_ensemble(X, y) -> tuple:
-    """Train three different sklearn models and return them."""
     models = []
-    # Model 1: MLPRegressor
     mlp = MLPRegressor(
         hidden_layer_sizes=(128, 64, 32),
         activation='relu',
         solver='adam',
-        alpha=1e-4,        # L2 regularization
+        alpha=1e-4,
         batch_size=64,
         learning_rate_init=0.001,
         max_iter=200,
@@ -3011,7 +3007,6 @@ def train_sklearn_ensemble(X, y) -> tuple:
         random_state=42,
         verbose=False
     )
-    # Model 2: GradientBoostingRegressor
     gbr = GradientBoostingRegressor(
         n_estimators=200,
         learning_rate=0.05,
@@ -3020,7 +3015,6 @@ def train_sklearn_ensemble(X, y) -> tuple:
         random_state=43,
         verbose=0
     )
-    # Model 3: ExtraTreesRegressor
     etr = ExtraTreesRegressor(
         n_estimators=200,
         max_depth=10,
@@ -3060,19 +3054,15 @@ def train_sklearn_ensemble(X, y) -> tuple:
                 print(C.y(f"  Cache save fail: {e}"))
         models.append(mdl)
 
-    # Return models and a dummy history object (for compatibility with old code)
     hist_obj = type("H", (), {"history": {"loss": [0.0], "mae": [0.0], "val_loss": [0.0]}})()
     return models, hist_obj
 
 
 def _predict_sklearn_ensemble(models, X, scaler, feats) -> tuple:
-    """Predict with sklearn ensemble, return median and std."""
-    # Take the last sequence, flatten, and predict
     last_seq = X[-1].reshape(1, -1)
     preds = []
     for mdl in models:
         pred = mdl.predict(last_seq)[0]
-        # Inverse transform to get price (first feature)
         dum = np.zeros((1, len(feats)))
         dum[0, 0] = pred
         price_pred = scaler.inverse_transform(dum)[0, 0]
@@ -3106,10 +3096,6 @@ def _skip_history():
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 
 def run_bot(symbol: str = None, balance: float = None) -> dict:
-    """
-    Main bot runner. Accepts optional symbol and balance overrides.
-    """
-    # Use provided values or defaults
     sym = symbol if symbol else COIN_SYMBOL
     bal = balance if balance else ACCOUNT_BALANCE
 
@@ -3143,10 +3129,8 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         prev_close     = float(df1h["close"].iloc[-2]) if len(df1h)>=2 else current_price
         actual_chg_pct = (current_price-prev_close)/max(prev_close,1e-10)*100
 
-        # ── Structure ──
         structure = analyze_structure(df1h)
 
-        # ── RegimeBrain ──
         print(section("Regime Brain (v11)","🧠"))
         regime_state = regime_brain.detect(df1h, df4h, structure=structure)
         print(row("Primary",      C.w(regime_state.primary)))
@@ -3158,7 +3142,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         print(row("Age",          f"{regime_state.regime_age} bars"))
         print(row("Trans Prob",   f"{regime_state.transition_prob:.0%}"))
 
-        # ── Transition detection ──
         transition_alert = transition_detector.check(df1h, regime_state)
         print(section("Regime Transition","🔮"))
         print(row("From → To",  C.y(f"{transition_alert.from_regime} → {transition_alert.likely_to}")))
@@ -3169,14 +3152,8 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
             result = {"signal": "HOLD", "reason": "Regime transition gate",
                       "transition": f"{transition_alert.from_regime}→{transition_alert.likely_to}",
                       "entry_type": "N/A"}
-            _print_report_v11(df1h, current_price, 0, 0, 0, actual_chg_pct, htf_bias, htf_desc,
-                              {}, False, False, "HOLD", 0, "Regime transition blocked", 0, "",
-                              0, {}, 0, "NORMAL", _default_ai(), "D", "Skipped", {}, True, "Transition gate",
-                              [], _skip_history(), 0, "", 0, "", [], {}, {}, {}, None, regime_state, None, transition_alert,
-                              sym)
             return result
 
-        # ── Adaptive Router ──
         route_config = AdaptiveStrategyRouter.route(regime_state, "", df1h)
         print(section("Adaptive Router","🧭"))
         print(row("TP Style", route_config["tp_style"]))
@@ -3184,7 +3161,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         print(row("Size Mult", f"{route_config['position_size_mult']:.2f}x"))
         print(row("TP Split", str(route_config.get("tp_split", (1,0,0)))))
 
-        # Patterns & Divergences
         print(section("Patterns & Divergences","🕯"))
         patterns             = detect_patterns(df1h)
         bull_div,bear_div,_  = detect_divergences(df1h)
@@ -3195,7 +3171,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         print(row("HH/HL",    C.dim(f"{structure['hh']} / {structure['hl']}")))
         print(row("LH/LL",    C.dim(f"{structure['lh']} / {structure['ll']}")))
 
-        # Whale
         print(section("Whale Tracker","🐋"))
         ob_res = wt.analyze_ob(sym, current_price)
         wc_res = wt.detect_whales(df1h)
@@ -3206,7 +3181,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
                                  else C.r(wc_res["cvd_trend"]) if wc_res["cvd_trend"]=="BEAR"
                                  else C.y(wc_res["cvd_trend"])))
 
-        # Sklearn ensemble prediction
         last_adx   = float(df1h["ADX"].iloc[-1])
         sklearn_gated = last_adx < 20 or regime_state.primary in ("RANGING_TIGHT", "RANGING_WIDE", "VOLATILE_SPIKE")
         skip,skip_reason = pre_screen(df1h)
@@ -3231,7 +3205,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         print(row("Predicted", (C.g if chg_pct>0 else C.r)(f"{pred_price:.6f} ({chg_pct:+.3f}%)")))
         print(row("σ",         C.dim(f"{pred_sigma:.5f} USDT")))
 
-        # ── Pre-signal for whale/addon ──
         signal_threshold_override = route_config["signal_threshold"]
         sig_pre,_,_,_ = generate_signal(
             df1h, actual_chg_pct,
@@ -3247,7 +3220,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         addon_result = addon_engine.run_all(df1h, sym, sig_pre, weights_override=addon_weights_override)
         addon_score = addon_result["combined_score"]
 
-        # Final signal
         signal,active,w_score,sig_reason = generate_signal(
             df1h, actual_chg_pct,
             predicted_price=pred_price if not skip else None,
@@ -3256,7 +3228,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
             addon_score=addon_score, regime=regime_state.primary,
             threshold_override=signal_threshold_override)
 
-        # ── MetaSignalFusion ──
         fused = fusion_engine.fuse(
             raw_signal=signal,
             regime_state=regime_state,
@@ -3286,16 +3257,8 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
             result = {"signal": "HOLD", "reason": fused.skip_reason,
                       "transition": f"{transition_alert.from_regime}→{transition_alert.likely_to}",
                       "entry_type": fused.entry_type}
-            _print_report_v11(df1h, current_price, pred_price, pred_sigma, chg_pct, actual_chg_pct,
-                              htf_bias, htf_desc, patterns, bull_div, bear_div,
-                              final_signal, w_score, fused.skip_reason, 0, "",
-                              0, {}, 0, regime_state.primary, _default_ai(), "D", "Skipped", {},
-                              skip, skip_reason, feats, hist_obj, 0, "", whale_score, whale_label,
-                              whale_notes, ob_res, wc_res, structure, addon_result,
-                              regime_state, fused, transition_alert, sym)
             return result
 
-        # Strength & market power
         strength,s_lbl,s_notes,lstm_confirms = compute_strength(
             df1h, predicted_price=pred_price if not skip else None,
             pred_sigma=pred_sigma, patterns=patterns, bull_div=bull_div, bear_div=bear_div,
@@ -3304,7 +3267,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         cached_mp = market_power(df1h, htf_bias, strength, final_signal)
         mp_val,mp_label,mp_tier = cached_mp
 
-        # Adaptive TP
         ob_module_info = addon_result.get("order_block",{}).get("info",{})
         all_obs = ob_module_info.get("all_obs",[])
         lg_module_info = addon_result.get("liquidity_grab",{}).get("info",{})
@@ -3328,7 +3290,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         pos = position_size(current_price, stop_loss, bal, RISK_PER_TRADE,
                             tier, mp_val, whale_score, addon_score=addon_score)
 
-        # TP split sizing
         tp_split = fused.tp_split if fused else (1.0, 0.0, 0.0)
         if final_signal != "HOLD" and tp_split[0] < 1.0:
             total_units = pos["pos_units"]
@@ -3340,16 +3301,7 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
             pos["tp2_units"] = 0
             pos["tp3_units"] = 0
 
-        # Record regime memory
         _regime_memory.record_regime_entry(regime_state.primary, datetime.now(timezone.utc), current_price)
-
-        _print_report_v11(df1h, current_price, pred_price, pred_sigma, chg_pct, actual_chg_pct,
-                          htf_bias, htf_desc, patterns, bull_div, bear_div,
-                          final_signal, w_score, sig_reason, strength, s_lbl,
-                          stop_loss, tp_levels, rr, regime, ai, tier, tier_desc, pos,
-                          skip, skip_reason, feats, hist_obj, mp_val, mp_label,
-                          whale_score, whale_label, whale_notes, ob_res, wc_res,
-                          structure, addon_result, regime_state, fused, transition_alert, sym)
 
         result = {"signal":final_signal,"tier":tier,"entry":current_price,"sl":stop_loss,
                   "tp_levels":tp_levels,"rr":rr,"strength":strength,"market_power":mp_val,
@@ -3370,216 +3322,6 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
 
     return result
 
-
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                 TERMINAL REPORT  (v11 with Regime Dashboard)               ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
-
-def _print_report_v11(df, price, pred, pred_sigma, chg_pct, actual_chg_pct,
-                      htf_bias, htf_desc, patterns, bull_div, bear_div,
-                      signal, w_score, sig_reason, strength, s_lbl,
-                      sl, tp_levels, rr, regime, ai, tier, tier_desc, pos,
-                      skip, skip_reason, feats, hist_obj, mp, mp_lbl,
-                      whale_score, whale_label, whale_notes, ob, wc, structure,
-                      addon_result=None, regime_state=None, fused=None, transition_alert=None,
-                      symbol_used=None):
-    ai           = ai           or _default_ai()
-    ob           = ob           or {}
-    wc           = wc           or {}
-    addon_result = addon_result or {}
-    st = structure or {"type":"UNKNOWN","confidence":0,"hh":False,"hl":False,
-                       "lh":False,"ll":False,"min_swing_used":0}
-    W  = 72
-
-    def hdr(txt, icon=""):
-        inner = f"  {icon}  {txt}  " if icon else f"  {txt}  "; pad = W - len(inner) - 2
-        return f"\n{C.CYAN}╠{'═'*W}╣{C.RST}\n{C.CYAN}║{C.RST}{C.BOLD}{inner}{' '*pad}{C.CYAN}║{C.RST}"
-
-    def ln(label, value, lw=22):
-        lbl = C.dim(f"{label:<{lw}}")
-        clean = str(value)
-        for ansi in [C.RST, C.BOLD, C.DIM, C.RED, C.GREEN, C.YEL, C.BLUE, C.MAG, C.CYAN, C.WHITE, C.GREY]:
-            clean = clean.replace(ansi, "")
-        pad = max(0, W - (lw + 3 + len(clean)))
-        return f"{C.CYAN}║{C.RST} {lbl} {value}{' ' * pad}{C.CYAN}║{C.RST}"
-
-    top = f"\n{C.CYAN}╔{'═'*W}╗{C.RST}"
-    bot = f"{C.CYAN}╚{'═'*W}╝{C.RST}"
-    sig_col = (C.g if "BUY" in signal else C.r if "SELL" in signal else C.y)
-    tier_col = (C.g if tier in ("A+","A") else C.y if tier=="B" else C.r)
-    comb = addon_result.get("combined_score",5.0)
-
-    print(top)
-    title = f"  CRYPTO BOT v11  ·  {symbol_used or COIN_SYMBOL}  ·  Self-Evolving Regime Brain (sklearn)  "
-    print(f"{C.CYAN}║{C.RST}{C.BOLD}{C.WHITE}{title}{' '*(W-len(title))}{C.RST}{C.CYAN}║{C.RST}")
-    ts_now = datetime.now(timezone.utc).strftime("%Y-%m-%d  %H:%M  UTC")
-    print(f"{C.CYAN}║{C.RST}  {C.dim(ts_now)}{' '*(W-len(ts_now)-2)}{C.CYAN}║{C.RST}")
-
-    # ── Regime Brain Dashboard ──
-    if regime_state:
-        print(hdr("SELF-EVOLVING REGIME BRAIN","🧠"))
-        print(ln("Regime", C.w(f"{regime_state.primary} (conf:{regime_state.confidence:.0f}%)")))
-        print(ln("Volatility", f"{regime_state.volatility_tier} (ATR pct:{regime_state.trend_strength:.0f})"))
-        print(ln("Regime Age", f"{regime_state.regime_age} bars"))
-        next_reg, next_prob = _regime_memory.predict_next_regime(regime_state.primary)
-        next_str = f"{next_reg} ({next_prob:.0%})" if next_prob > 0 else next_reg
-        print(ln("Next Likely", C.y(next_str) if next_reg != regime_state.primary else C.dim(next_str)))
-        cfg = _regime_memory.get_optimal_config(regime_state.primary)
-        print(ln("Evolved Thr", f"{cfg.get('signal_threshold',5):.1f}"))
-        print(ln("Best SL Mult", f"{cfg.get('sl_atr_mult',1.2)}× ATR"))
-        if fused:
-            print(ln("Entry Type", fused.entry_type))
-            print(ln("TP Strategy", fused.tp_strategy))
-            print(ln("Quality Score", C.g(f"{fused.quality_score:.1f}/10") if fused.quality_score>=QUALITY_SCORE_FLOOR else C.r(f"{fused.quality_score:.1f}/10")))
-            if fused.tp_split[0] < 1.0:
-                print(ln("TP Split", f"TP1:{fused.tp_split[0]:.0%} TP2:{fused.tp_split[1]:.0%} TP3:{fused.tp_split[2]:.0%}"))
-
-    if transition_alert and transition_alert.action != "ALLOW":
-        print(hdr("REGIME TRANSITION ALERT","🔮"))
-        print(ln("From → To", C.y(f"{transition_alert.from_regime} → {transition_alert.likely_to}")))
-        print(ln("Confidence", f"{transition_alert.confidence:.0%}"))
-        print(ln("Action", C.r(transition_alert.action)))
-
-    # ── V10 sections ──
-    print(hdr("PROBABILITY TP ENGINE (v11 Adaptive)","🎯"))
-    print(ln("TP1 Level Type",  ai.get("tp1_type","N/A")))
-    print(ln("TP1 Score",       f"{ai.get('tp1_score',0):.1f}"))
-    print(ln("TP1 Distance",    f"{ai.get('tp1_pct',0):.3f}%"))
-    print(ln("TP2 Distance",    f"{ai.get('tp2_pct',0):.3f}%" if ai.get('tp2_pct') is not None else "N/A"))
-    print(ln("TP3 Distance",    f"{ai.get('tp3_pct',0):.3f}%" if ai.get('tp3_pct') is not None else "N/A"))
-    print(ln("Vol Zone",        ai.get("vol_zone","N/A")))
-    top5=ai.get("levels_scored",[])[:5]
-    for lvl in top5:
-        print(ln("",C.dim(f"  {lvl.get('type','?'):<22} score:{lvl.get('score',0):.1f}  dist:{lvl.get('dist_atr',0):.2f}× ATR")))
-
-    print(hdr("SELF-IMPROVEMENT (TradeJournal)","📓"))
-    stats=_journal.compute_stats()
-    print(ln("Closed Trades",  str(stats.get("n",0))))
-    wr=stats.get("win_rate",0)
-    col=(C.g if wr>=0.55 else C.y if wr>=0.45 else C.r)
-    print(ln("Win Rate",       col(f"{wr:.1%}") if stats.get("n",0)>0 else C.dim("<20 trades — not adapting")))
-
-    print(hdr("MARKET STRUCTURE","🏗"))
-    sc_=C.g if st["type"] in ("UPTREND","BREAKOUT") else C.r if st["type"] in ("DOWNTREND","BREAKDOWN") else C.y
-    print(ln("Structure",   sc_(f"{st['type']} (conf:{st['confidence']}%)")))
-
-    print(hdr("WHALE TRACKER","🐋"))
-    wc_=(C.g if whale_score>=7.5 else C.y if whale_score>=5.0 else C.r)
-    print(ln("Whale Score",  wc_(f"{whale_score:.1f}/10  —  {whale_label}")))
-    print(ln("Order Book",   ob.get("ob_note","N/A")))
-
-    print(hdr("ADDON — 4 EXTRA LOGICS","🔬"))
-    c_fn=C.g if comb>=6 else C.y if comb>=3.5 else C.r
-    print(ln("Combined Score", c_fn(f"{comb:.1f}/10  —  {addon_result.get('combined_label','N/A')}")))
-    mods=[("Order Block","order_block"),("Breakout Retest","breakout_retest"),
-          ("Liquidity Grab","liquidity_grab"),("OI + Funding","oi_funding")]
-    for name,key in mods:
-        m=addon_result.get(key,{}); sc=m.get("score",0)
-        mc=C.g if sc>=6 else C.y if sc>=3 else C.r
-        print(ln(f"  {name}", mc(f"{sc:.1f}/10  {m.get('label','N/A')}")))
-
-    print(hdr("SKLEARN ENSEMBLE (MLP+GBR+ETR)","🧠"))
-    print(ln("Status",     C.dim(f"SKIPPED — {skip_reason}") if skip else C.g("Ensemble trained")))
-
-    print(hdr("PRICE","💰"))
-    print(ln("Current",    C.w(f"{price:.6f} USDT")))
-    print(ln("Predicted",  (C.g if chg_pct>0 else C.r)(f"{pred:.6f}  ({chg_pct:+.3f}%)")))
-    print(ln("Actual Δ",   (C.g if actual_chg_pct>0 else C.r)(f"{actual_chg_pct:+.2f}%")))
-
-    print(hdr(f"SIGNAL:  {signal}","⚖"))
-    print(ln("Confidence",  tier_col(f"{tier}  —  {tier_desc}")))
-    print(ln("Strength",    f"{strength}/100  —  {s_lbl}"))
-    print(ln("Regime",      regime))
-
-    print(hdr("ADAPTIVE RISK","⚖"))
-    print(ln("Entry",      C.w(f"{price:.6f} USDT")))
-    sl_mult_raw = ai.get("sl_mult_used", 0)
-    sl_mult_str = f"{sl_mult_raw:.2f}" if isinstance(sl_mult_raw, (int, float)) else str(sl_mult_raw)
-    sl_dist_val = ai.get("sl_dist_pct", 0)
-    sl_dist_str = f"{sl_dist_val:.3f}" if isinstance(sl_dist_val, (int, float)) else str(sl_dist_val)
-    print(ln("Stop Loss",  C.r(f"{sl:.6f}  (-{sl_dist_str}%)  [{sl_mult_str}× ATR]")))
-    tp1_pct_val = ai.get("tp1_pct", 0)
-    tp1_pct_str = f"{tp1_pct_val:.3f}" if isinstance(tp1_pct_val, (int, float)) else str(tp1_pct_val)
-    tp1_val = tp_levels.get('TP1', 0)
-    print(ln("TP1", C.g(f"{tp1_val:.6f}  (+{tp1_pct_str}%)  [{ai.get('tp1_type','N/A')}]")))
-    if tp_levels.get("TP2"):
-        tp2_pct_val = ai.get("tp2_pct", 0)
-        tp2_pct_str = f"{tp2_pct_val:.3f}" if isinstance(tp2_pct_val, (int, float)) else str(tp2_pct_val)
-        print(ln("TP2",    C.dim(f"{tp_levels['TP2']:.6f} (+{tp2_pct_str}%)")))
-    else:
-        print(ln("TP2",    C.dim("N/A")))
-    if tp_levels.get("TP3"):
-        tp3_pct_val = ai.get("tp3_pct", 0)
-        tp3_pct_str = f"{tp3_pct_val:.3f}" if isinstance(tp3_pct_val, (int, float)) else str(tp3_pct_val)
-        print(ln("TP3",    C.dim(f"{tp_levels['TP3']:.6f} (+{tp3_pct_str}%)")))
-    else:
-        print(ln("TP3",    C.dim("N/A")))
-    rr_val = ai.get("rr_ratio", rr)
-    rr_col = C.g if rr_val >= 2 else C.y
-    print(ln("R:R Ratio",  rr_col(f"1:{rr_val:.2f}")))
-
-    print(hdr("POSITION SIZING","💼"))
-    print(ln("Account",    f"${pos.get('balance','N/A'):,} USDT"))
-    print(ln("Risk %",     f"{pos.get('risk_pct','N/A')}%"))
-    print(ln("Risk Amount",f"${pos.get('risk_amt','N/A')} USDT"))
-    print(ln("Position",   f"${pos.get('pos_usdt','N/A')} USDT  ({pos.get('pos_units','N/A')} units)"))
-    if pos.get("tp1_units", 0) > 0:
-        print(ln("TP1 Units", f"{pos['tp1_units']:.6f}"))
-    if pos.get("tp2_units", 0) > 0:
-        print(ln("TP2 Units", f"{pos['tp2_units']:.6f}"))
-    if pos.get("tp3_units", 0) > 0:
-        print(ln("TP3 Units", f"{pos['tp3_units']:.6f}"))
-
-    print(hdr("ACTION","💡"))
-    if signal!="HOLD":
-        action=sig_col(f"  EXECUTE  {signal}  —  Grade {tier}  —  {tier_desc}  PTP:{ai.get('tp1_type','N/A')}  ")
-    else:
-        action=C.y("  HOLD — wait for a better setup  ")
-    print(f"{C.CYAN}║{C.RST}  {action}")
-    print(bot)
-    print(C.dim("  v11 Self-Evolving Regime Brain  |  AdaptiveTP  |  MetaFusion  |  Sklearn Ensemble\n"))
-
-
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                  VISUALIZATION  (11 panels, v11) – omitted for brevity    ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
-
-# The _plot_v11 function remains unchanged but is not called from Streamlit.
-# It can be left as is or removed to save space.
-
-
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                            ENTRY POINT                                     ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
-
-if __name__ == "__main__":
-    result = run_bot()
-    print(f"\n{C.BOLD}{C.CYAN}  ══════════ FINAL SUMMARY (v11) ══════════{C.RST}")
-    print(row("Signal",      (C.g if "BUY"  in result.get("signal","") else
-                              C.r if "SELL" in result.get("signal","") else C.y)(result.get("signal","N/A"))))
-    print(row("Tier",        result.get("tier","N/A")))
-    print(row("Entry",       f"{result.get('entry',0):.6f} USDT"))
-    print(row("Stop Loss",   f"{result.get('sl',0):.6f} USDT"))
-    tp = result.get("tp_levels",{})
-    print(row("TP1",         f"{tp.get('TP1',0):.6f} USDT"))
-    print(row("TP2",         f"{tp.get('TP2',0):.6f} USDT" if tp.get('TP2') else "N/A"))
-    print(row("TP3",         f"{tp.get('TP3',0):.6f} USDT" if tp.get('TP3') else "N/A"))
-    print(row("R:R",         f"1:{result.get('rr',0):.2f}"))
-    print(row("Power",       f"{result.get('market_power',0):.0f}/100"))
-    print(row("Whale",       f"{result.get('whale_score',0):.1f}/10  —  {result.get('whale_label','')}"))
-    print(row("Addon",       f"{result.get('addon_score',0):.1f}/10  —  {result.get('addon_label','')}"))
-    print(row("Gate",        result.get("addon_gate","N/A")))
-    print(row("Structure",   f"{result.get('structure','N/A')} ({result.get('structure_conf',0)}%)"))
-    print(row("Regime",      result.get("regime","N/A")))
-    print(row("Quality",     f"{result.get('quality',0)}/10"))
-    print(row("Transition",  result.get("transition","N/A")))
-    print(row("Entry Type",  result.get("entry_type","N/A")))
-    print(row("TP Split",    result.get("tp_split","N/A")))
-    pos = result.get("position",{})
-    print(row("Position",    f"${pos.get('pos_usdt',0):,.2f} USDT"))
-    print()
-
-# ↑↑↑ MODIFIED V11 CODE ENDS HERE ↑↑↑
 
 # ═══════════════════════════════════════════════════
 #  STREAMLIT ENTRY POINT — At the very bottom
