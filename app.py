@@ -537,7 +537,7 @@ REGIME_HURST_WINDOW  = 50
 REGIME_TRANSITION_LOOKBACK = 20
 TRAIL_ACTIVATION_ATR = 1.0
 TRAIL_DISTANCE_ATR   = 1.5
-QUALITY_SCORE_FLOOR  = 6.0
+QUALITY_SCORE_FLOOR  = 4.0
 
 # ── Futures exchanges ─────────────────────────────────────────────────────────
 FUTURES_EXCHANGES = ["binance", "bybit", "okx"]
