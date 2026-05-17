@@ -3147,7 +3147,7 @@ def run_bot(symbol: str = None, balance: float = None) -> dict:
         print(row("From → To",  C.y(f"{transition_alert.from_regime} → {transition_alert.likely_to}")))
         print(row("Action",     C.r(transition_alert.action) if transition_alert.action!="ALLOW" else C.g(transition_alert.action)))
         print(row("Reason",     transition_alert.reason))
-        if regime_state.transition_prob > 0.85 or transition_alert.action == "HOLD" or transition_alert.bars_until <= 0.85):
+        if regime_state.transition_prob > 0.85 or (transition_alert.action == "HOLD" and transition_alert.confidence >= 0.85):
             print(C.r("  🚫 REGIME GATE: transition imminent — skip signal"))
             result = {"signal": "HOLD", "reason": "Regime transition gate",
                       "transition": f"{transition_alert.from_regime}→{transition_alert.likely_to}",
