@@ -2876,7 +2876,7 @@ def generate_signal(df: pd.DataFrame, actual_price_chg_pct: float,
     print(row("BUY  score", C.g(f"{buy_s:.1f}")))
     print(row("SELL score", C.r(f"{sell_s:.1f}")))
 
-    if regime.startswith("RANGING"): strong_threshold=8.0; normal_threshold=6.0
+    if regime.startswith("RANGING"): strong_threshold=6.0; normal_threshold=4.0
     else:                             strong_threshold=7.5; normal_threshold=5.0
 
     if threshold_override is not None:
