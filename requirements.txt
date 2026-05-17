@@ -5,5 +5,3 @@ pandas
 ta
 scikit-learn
 matplotlib
-tensorflow
-keras
