@@ -13,16 +13,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import tensorflow as tf
-from keras.models import Sequential, load_model
-from keras.layers import LSTM, Dense, Dropout, Input, Conv1D
-from keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+# ── PyTorch (replaces TensorFlow/Keras) ────────────────────────────────
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
 import ccxt
 import ta
 from sklearn.preprocessing import MinMaxScaler
 
 warnings.filterwarnings("ignore")
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 # ── Streamlit Page Config & Dark Theme ─────────────────────────────────
 st.set_page_config(
@@ -614,8 +616,6 @@ def detect_divergences(df, lookback=30):
     return bull_div, bear_div, notes
 
 # ── HTF Bias, Regime, Market Power, Strength, Signals, TP/SL, etc. ─────
-# (All remaining functions are unchanged and included below)
-
 def get_htf_bias(df4):
     if df4 is None or df4.empty or len(df4) < 10:
         return "NEUTRAL", "4H unavailable"
@@ -1008,22 +1008,35 @@ def position_size(entry, sl, balance=1000.0, risk_pct=0.01, tier="B", mp=50, wha
         "pow_mult": pow_m, "whl_mult": whl_m,
     }
 
-# ── LSTM (Regime-Gated Anti-Overfit) ────────────────────────────────────
-def _build_lstm(shape):
-    mdl = Sequential([
-        Input(shape=shape),
-        Conv1D(64, 3, activation="relu", padding="same"),
-        Conv1D(32, 3, activation="relu", padding="same"),
-        LSTM(128, return_sequences=True, activation="tanh"),
-        Dropout(0.25),
-        LSTM(64, return_sequences=False, activation="tanh"),
-        Dropout(0.20),
-        Dense(32, activation="relu"),
-        Dense(16, activation="relu"),
-        Dense(1),
-    ])
-    mdl.compile(optimizer=tf.keras.optimizers.Adam(0.001), loss="huber", metrics=["mae"])
-    return mdl
+# ── PyTorch LSTM Model (replaces Keras Sequential) ──────────────────────
+class LSTMModel(nn.Module):
+    def __init__(self, n_feats):
+        super().__init__()
+        self.conv1  = nn.Conv1d(n_feats, 64, 3, padding=1)
+        self.conv2  = nn.Conv1d(64, 32, 3, padding=1)
+        self.lstm1  = nn.LSTM(32, 128, batch_first=True)
+        self.drop1  = nn.Dropout(0.25)
+        self.lstm2  = nn.LSTM(128, 64, batch_first=True)
+        self.drop2  = nn.Dropout(0.20)
+        self.fc1    = nn.Linear(64, 32)
+        self.fc2    = nn.Linear(32, 16)
+        self.fc3    = nn.Linear(16, 1)
+
+    def forward(self, x):
+        # x: (batch, seq_len, n_feats)
+        x = x.permute(0, 2, 1)          # → (batch, n_feats, seq_len) for Conv1d
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = x.permute(0, 2, 1)          # → (batch, seq_len, 32) for LSTM
+        x, _ = self.lstm1(x)
+        x = self.drop1(x)
+        x, _ = self.lstm2(x)
+        x = self.drop2(x)
+        x = x[:, -1, :]                 # last timestep
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        return self.fc3(x)
+
 
 def prepare_lstm(df, seq_len=60):
     feats = [c for c in ["close","RSI_14","MACD","MACD_Hist","ATR","OBV",
@@ -1046,39 +1059,104 @@ def _cache_key(X):
 
 def train_lstm(X, y, epochs=80):
     ck = _cache_key(X)
-    cp = os.path.join(cfg["MODEL_CACHE_DIR"], f"m_{ck}.keras")
+    cp = os.path.join(cfg["MODEL_CACHE_DIR"], f"m_{ck}.pt")
     hp = os.path.join(cfg["MODEL_CACHE_DIR"], f"h_{ck}.pkl")
+
     if cfg["USE_MODEL_CACHE"] and os.path.exists(cp):
         logger.info(f"Model cache hit – {ck}")
         try:
-            mdl = load_model(cp)
+            mdl = LSTMModel(X.shape[2])
+            mdl.load_state_dict(torch.load(cp, map_location="cpu", weights_only=True))
+            mdl.eval()
             with open(hp, "rb") as f: h = pickle.load(f)
             class _H: pass
             hi = _H(); hi.history = h
             return mdl, hi
         except Exception as e:
             logger.warning(f"Cache load fail: {e}")
-    mdl = _build_lstm((X.shape[1], X.shape[2]))
-    cbs = [EarlyStopping("val_loss", patience=10, restore_best_weights=True, verbose=0),
-           ReduceLROnPlateau("val_loss", factor=0.5, patience=5, min_lr=1e-6, verbose=0)]
+
+    device = torch.device("cpu")
+    mdl = LSTMModel(X.shape[2]).to(device)
+
+    # Train / val split
+    split = int(len(X) * 0.85)
+    X_tr, X_val = X[:split], X[split:]
+    y_tr, y_val = y[:split], y[split:]
+
+    X_tr_t  = torch.FloatTensor(X_tr).to(device)
+    y_tr_t  = torch.FloatTensor(y_tr).unsqueeze(1).to(device)
+    X_val_t = torch.FloatTensor(X_val).to(device)
+    y_val_t = torch.FloatTensor(y_val).unsqueeze(1).to(device)
+
+    loader    = DataLoader(TensorDataset(X_tr_t, y_tr_t), batch_size=64, shuffle=False)
+    optimizer = optim.Adam(mdl.parameters(), lr=0.001)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5, min_lr=1e-6)
+    criterion = nn.HuberLoss()
+
+    history   = {"loss": [], "mae": [], "val_loss": []}
+    best_val  = float("inf")
+    best_state= None
+    pat_count = 0
+    patience  = 10
+
     t0 = time.time()
-    history = mdl.fit(X, y, epochs=epochs, batch_size=64, validation_split=0.15, callbacks=cbs, verbose=0)
-    logger.success(f"Trained {len(history.history['loss'])} epochs in {time.time()-t0:.0f}s")
+    for ep in range(epochs):
+        mdl.train()
+        ep_loss = ep_mae = 0.0
+        for xb, yb in loader:
+            optimizer.zero_grad()
+            pred = mdl(xb)
+            loss = criterion(pred, yb)
+            loss.backward()
+            optimizer.step()
+            ep_loss += loss.item()
+            ep_mae  += torch.mean(torch.abs(pred - yb)).item()
+        ep_loss /= max(len(loader), 1)
+        ep_mae  /= max(len(loader), 1)
+
+        mdl.eval()
+        with torch.no_grad():
+            val_loss = criterion(mdl(X_val_t), y_val_t).item()
+
+        history["loss"].append(ep_loss)
+        history["mae"].append(ep_mae)
+        history["val_loss"].append(val_loss)
+        scheduler.step(val_loss)
+
+        if val_loss < best_val:
+            best_val   = val_loss
+            best_state = {k: v.clone() for k, v in mdl.state_dict().items()}
+            pat_count  = 0
+        else:
+            pat_count += 1
+            if pat_count >= patience:
+                logger.info(f"Early stop at epoch {ep+1}")
+                break
+
+    if best_state:
+        mdl.load_state_dict(best_state)
+    logger.success(f"Trained {len(history['loss'])} epochs in {time.time()-t0:.0f}s")
+
     if cfg["USE_MODEL_CACHE"]:
         try:
             os.makedirs(cfg["MODEL_CACHE_DIR"], exist_ok=True)
-            mdl.save(cp)
-            with open(hp, "wb") as f: pickle.dump(history.history, f)
+            torch.save(mdl.state_dict(), cp)
+            with open(hp, "wb") as f: pickle.dump(history, f)
             logger.info(f"Cached → {ck}")
         except Exception as e:
             logger.warning(f"Cache save fail: {e}")
-    return mdl, history
+
+    mdl.eval()
+    class _H: pass
+    hi = _H(); hi.history = history
+    return mdl, hi
 
 def _predict(mdl, X, scaler, feats):
-    inp = X[-1].reshape(1, X.shape[1], X.shape[2])
-    ps = mdl.predict(inp, verbose=0)
+    inp = torch.FloatTensor(X[-1:])   # (1, seq_len, n_feats)
+    with torch.no_grad():
+        ps = mdl(inp).item()
     dum = np.zeros((1, len(feats)))
-    dum[0, 0] = float(ps[0, 0])
+    dum[0, 0] = ps
     return float(scaler.inverse_transform(dum)[0, 0])
 
 def pre_screen(df):
@@ -1123,7 +1201,6 @@ def run_bot():
         df1h = compute_indicators(df1h)
         patterns = detect_patterns(df1h)
         bull_div, bear_div, _ = detect_divergences(df1h)
-
         structure = analyze_structure(df1h, cfg["STRUCTURE_LOOKBACK"])
 
         current_price = float(df1h["close"].iloc[-1])
@@ -1215,22 +1292,18 @@ if st.sidebar.button("🚀 Run Analysis", use_container_width=True):
     if "error" in res:
         st.error(res["error"])
     else:
-        # Show logs
         with st.expander("📋 Execution Logs", expanded=False):
             st.text(logger.get_text())
 
-        # Key Metrics Row
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         sig = res.get("signal", "HOLD")
-        sig_color = "green" if "BUY" in sig else "red" if "SELL" in sig else "gray"
-        col1.metric("Signal", sig, delta=None)
+        col1.metric("Signal", sig)
         col2.metric("Tier", res.get("tier", "?"), help=res.get("tier_desc",""))
         col3.metric("Strength", f"{res.get('strength',0)}/100")
         col4.metric("Market Power", f"{res.get('market_power',0)}/100")
         col5.metric("Whale Score", f"{res.get('whale_score',0)}/10")
         col6.metric("R:R", f"1:{res.get('rr',0):.2f}")
 
-        # Trade Levels
         colA, colB, colC, colD = st.columns(4)
         colA.metric("Entry", f"{res['entry']:.6f}")
         colB.metric("Stop Loss", f"{res['sl']:.6f}")
@@ -1238,7 +1311,6 @@ if st.sidebar.button("🚀 Run Analysis", use_container_width=True):
         colC.metric("TP1", f"{tp.get('TP1', 'N/A')}")
         colD.metric("TP2", f"{tp.get('TP2', 'N/A') or 'N/A'}")
 
-        # Structure & Whale details
         colS, colW = st.columns(2)
         with colS:
             st.subheader("🏗 Market Structure")
@@ -1249,7 +1321,6 @@ if st.sidebar.button("🚀 Run Analysis", use_container_width=True):
             for note in res.get("whale_notes", []):
                 st.caption(note)
 
-        # Position Sizing
         pos = res.get("position", {})
         st.subheader("💼 Position Sizing")
         colP1, colP2, colP3, colP4 = st.columns(4)
@@ -1258,7 +1329,6 @@ if st.sidebar.button("🚀 Run Analysis", use_container_width=True):
         colP3.metric("Pos USDT", f"${pos.get('pos_usdt','?')}")
         colP4.metric("Pos Units", f"{pos.get('pos_units','?')}")
 
-        # Price Chart
         df1h = res.get("df1h")
         if df1h is not None:
             st.subheader("📈 Price Chart")
