@@ -3,6 +3,5 @@ numpy>=2.0.0
 pandas==2.2.2
 ta==0.11.0
 ccxt==4.3.89
-torch
 matplotlib==3.9.2
 scikit-learn==1.5.1
