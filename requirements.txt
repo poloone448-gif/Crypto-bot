@@ -6,3 +6,4 @@ ccxt==4.3.89
 torch
 matplotlib==3.9.2
 scikit-learn==1.5.1
+pillow>=11.0.0
