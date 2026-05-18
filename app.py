@@ -439,12 +439,47 @@ FEATURE_COLS = [
     "CCI","WilliamsR","ROC","CVD20","Vol_Pct",
 ]
 
+def _clean_Xy(X: np.ndarray, y: np.ndarray):
+    """
+    Remove rows where X or y contain NaN or Inf.
+    Also clip extreme values to prevent numerical blow-up.
+    """
+    # Replace inf with nan first
+    X = np.where(np.isinf(X), np.nan, X)
+    y = np.where(np.isinf(y), np.nan, y)
+
+    # Column-wise median imputation for X (safer than row-drop for time series)
+    col_medians = np.nanmedian(X, axis=0)
+    nan_mask_X  = np.isnan(X)
+    inds = np.where(nan_mask_X)
+    X[inds] = np.take(col_medians, inds[1])
+
+    # Drop rows where y is still nan
+    valid = ~np.isnan(y)
+    X, y  = X[valid], y[valid]
+
+    # Clip to ±10 std to prevent outlier blow-up
+    std = X.std(axis=0, keepdims=True).clip(min=1e-8)
+    X   = np.clip(X, -10 * std, 10 * std)
+
+    return X, y
+
 def build_features(df: pd.DataFrame, seq_len: int = 60):
     feats  = [c for c in FEATURE_COLS if c in df.columns]
     log.info(f"🧠 Features ({len(feats)}): {', '.join(feats[:8])}…")
 
+    # ── Pre-clean the raw DataFrame columns ─────────────────────────
+    raw = df[feats].copy()
+    # Forward-fill then backward-fill, then fill any remaining with 0
+    raw = raw.ffill().bfill().fillna(0)
+    # Replace inf values
+    raw = raw.replace([np.inf, -np.inf], 0)
+
     scaler = RobustScaler()
-    scaled = scaler.fit_transform(df[feats].values)
+    scaled = scaler.fit_transform(raw.values)
+
+    # Replace any NaN/Inf that survived scaling
+    scaled = np.nan_to_num(scaled, nan=0.0, posinf=0.0, neginf=0.0)
 
     X, y = [], []
     for i in range(seq_len, len(scaled)):
@@ -455,10 +490,22 @@ def build_features(df: pd.DataFrame, seq_len: int = 60):
             window.std(axis=0),
             window[-1] - window[-5],
         ])
-        X.append(np.concatenate([flat, stats]))
+        row = np.concatenate([flat, stats])
+        X.append(row)
         y.append(scaled[i, 0])
 
-    return np.array(X), np.array(y), scaler, feats
+    X_arr, y_arr = np.array(X), np.array(y)
+
+    # Final safety clean
+    X_arr, y_arr = _clean_Xy(X_arr, y_arr)
+
+    nan_x = np.isnan(X_arr).sum()
+    nan_y = np.isnan(y_arr).sum()
+    if nan_x > 0 or nan_y > 0:
+        log.warning(f"Residual NaN after clean — X:{nan_x} y:{nan_y}")
+
+    log.info(f"Feature matrix: {X_arr.shape}, samples: {len(y_arr)}")
+    return X_arr, y_arr, scaler, feats
 
 def walk_forward_validate(X, y, n_splits=5):
     fold_size = len(X) // (n_splits + 1)
@@ -471,13 +518,26 @@ def walk_forward_validate(X, y, n_splits=5):
             break
         X_tr,  y_tr  = X[:train_end],  y[:train_end]
         X_val, y_val = X[val_start:val_end], y[val_start:val_end]
-        m = Ridge(alpha=1.0)
-        m.fit(X_tr, y_tr)
-        pred = m.predict(X_val)
-        maes.append(mean_absolute_error(y_val, pred))
+
+        # Per-fold clean (safety)
+        X_tr,  y_tr  = _clean_Xy(X_tr.copy(),  y_tr.copy())
+        X_val, y_val = _clean_Xy(X_val.copy(), y_val.copy())
+
+        if len(X_tr) < 10 or len(X_val) < 2:
+            continue
+        try:
+            m = Ridge(alpha=1.0)
+            m.fit(X_tr, y_tr)
+            pred = m.predict(X_val)
+            maes.append(mean_absolute_error(y_val, pred))
+        except Exception as e:
+            log.warning(f"WF fold {i} failed: {e}")
     return float(np.mean(maes)) if maes else 0.0
 
 def build_ensemble(X, y):
+    # Global clean before split
+    X, y   = _clean_Xy(X.copy(), y.copy())
+
     split  = int(len(X) * 0.80)
     X_tr,  X_val = X[:split],  X[split:]
     y_tr,  y_val = y[:split],  y[split:]
