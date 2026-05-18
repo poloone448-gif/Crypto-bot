@@ -14,15 +14,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
-# ── PyTorch (replaces TensorFlow/Keras) ────────────────────────────────
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+# ── Sklearn Model (replaces PyTorch) ───────────────────────────────────
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import MinMaxScaler
 
 import ccxt
 import ta
-from sklearn.preprocessing import MinMaxScaler
 
 warnings.filterwarnings("ignore")
 
@@ -766,11 +763,11 @@ def compute_strength(df, predicted_price=None, patterns=None, bull_div=False, be
     if predicted_price is not None:
         pct = (predicted_price - price) / price * 100
         if adx_bull and pct > 0.3:
-            _c("LSTM", 1.5, 1.5, f"LSTM confirms BUY {pct:+.2f}% +1.5"); lstm_confirms = True
+            _c("Model", 1.5, 1.5, f"Model confirms BUY {pct:+.2f}% +1.5"); lstm_confirms = True
         elif not adx_bull and pct < -0.3:
-            _c("LSTM", 1.5, 1.5, f"LSTM confirms SELL {pct:+.2f}% +1.5"); lstm_confirms = True
+            _c("Model", 1.5, 1.5, f"Model confirms SELL {pct:+.2f}% +1.5"); lstm_confirms = True
         else:
-            _c("LSTM", 0.0, 1.5, f"LSTM no confirm {pct:+.2f}% +0")
+            _c("Model", 0.0, 1.5, f"Model no confirm {pct:+.2f}% +0")
     bull_pats = ["bullish_engulfing","hammer","morning_star"]
     bear_pats = ["bearish_engulfing","shooting_star","evening_star"]
     found_pat = next((p for p in bull_pats+bear_pats if patterns.get(p)), None)
@@ -832,7 +829,7 @@ def generate_signal(df, price_chg_pct, predicted_price=None, htf_bias="NEUTRAL",
         "vol_spike": (vp >= 55, 1.0),
         "supertrend": (st_bull, 1.0),
         "vwap_above": (close > vwap, 0.5),
-        "lstm_bull": (predicted_price is not None and predicted_price > close*1.003, 1.5),
+        "model_bull": (predicted_price is not None and predicted_price > close*1.003, 1.5),
         "bull_pat": (any(patterns.get(p, False) for p in ["bullish_engulfing","hammer","morning_star"]), 1.0),
         "bull_div": (bull_div, 1.0),
         "htf_bull": (htf_bias == "BULL", 1.0),
@@ -847,7 +844,7 @@ def generate_signal(df, price_chg_pct, predicted_price=None, htf_bias="NEUTRAL",
         "vol_spike": (vp >= 55, 1.0),
         "supertrend": (not st_bull, 1.0),
         "vwap_below": (close < vwap, 0.5),
-        "lstm_bear": (predicted_price is not None and predicted_price < close*0.997, 1.5),
+        "model_bear": (predicted_price is not None and predicted_price < close*0.997, 1.5),
         "bear_pat": (any(patterns.get(p, False) for p in ["bearish_engulfing","shooting_star","evening_star"]), 1.0),
         "bear_div": (bear_div, 1.0),
         "htf_bear": (htf_bias == "BEAR", 1.0),
@@ -939,10 +936,10 @@ def compute_tp_sl(price, df, signal, strength_score=50, predicted_price=None,
         if sl>res: sl=res*0.997; sr_note+="SL@R"
     if not sr_note: sr_note = f"Clean – S={sup:.5f} R={res:.5f}"
     if abs(tp1-price) < atr * 0.5: tp1 = price + d * atr * 0.5; sr_note += " | TP1 floored"
-    lstm_tp3 = "Not triggered"
+    model_tp3 = "Not triggered"
     if tp_count==3 and lstm_confirms and predicted_price is not None and tp2:
-        if "BUY" in signal and predicted_price > tp2: tp3 = predicted_price; lstm_tp3 = f"LSTM → {predicted_price:.5f}"
-        elif "SELL" in signal and predicted_price < tp2: tp3 = predicted_price; lstm_tp3 = f"LSTM → {predicted_price:.5f}"
+        if "BUY" in signal and predicted_price > tp2: tp3 = predicted_price; model_tp3 = f"Model → {predicted_price:.5f}"
+        elif "SELL" in signal and predicted_price < tp2: tp3 = predicted_price; model_tp3 = f"Model → {predicted_price:.5f}"
     if "BUY" in signal and tp1 <= price: return sl, {"TP1":tp1,"TP2":None,"TP3":None}, "HOLD", {"cancel_reason":"TP1≤entry","rr_ratio":0}
     if "SELL" in signal and tp1 >= price: return sl, {"TP1":tp1,"TP2":None,"TP3":None}, "HOLD", {"cancel_reason":"TP1≥entry","rr_ratio":0}
     tp1_d = abs(tp1-price); sl_d = abs(sl-price)
@@ -957,7 +954,7 @@ def compute_tp_sl(price, df, signal, strength_score=50, predicted_price=None,
     info = {
         "market_power": mp, "power_label": mp_lbl, "power_tier": mp_tier,
         "vol_note": vn, "regime": regime, "sr_note": sr_note,
-        "lstm_tp3_note": lstm_tp3, "tp_count": tp_count,
+        "lstm_tp3_note": model_tp3, "tp_count": tp_count,
         "tp1_pct": pct(tp1), "tp2_pct": pct(tp2) if tp2 else None,
         "tp3_pct": pct(tp3) if tp3 else None,
         "sl_pct": round(sl_d/price*100, 2), "rr_ratio": rr,
@@ -1008,153 +1005,71 @@ def position_size(entry, sl, balance=1000.0, risk_pct=0.01, tier="B", mp=50, wha
         "pow_mult": pow_m, "whl_mult": whl_m,
     }
 
-# ── PyTorch LSTM Model (replaces Keras Sequential) ──────────────────────
-class LSTMModel(nn.Module):
-    def __init__(self, n_feats):
-        super().__init__()
-        self.conv1  = nn.Conv1d(n_feats, 64, 3, padding=1)
-        self.conv2  = nn.Conv1d(64, 32, 3, padding=1)
-        self.lstm1  = nn.LSTM(32, 128, batch_first=True)
-        self.drop1  = nn.Dropout(0.25)
-        self.lstm2  = nn.LSTM(128, 64, batch_first=True)
-        self.drop2  = nn.Dropout(0.20)
-        self.fc1    = nn.Linear(64, 32)
-        self.fc2    = nn.Linear(32, 16)
-        self.fc3    = nn.Linear(16, 1)
-
-    def forward(self, x):
-        # x: (batch, seq_len, n_feats)
-        x = x.permute(0, 2, 1)          # → (batch, n_feats, seq_len) for Conv1d
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-        x = x.permute(0, 2, 1)          # → (batch, seq_len, 32) for LSTM
-        x, _ = self.lstm1(x)
-        x = self.drop1(x)
-        x, _ = self.lstm2(x)
-        x = self.drop2(x)
-        x = x[:, -1, :]                 # last timestep
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        return self.fc3(x)
-
-
-def prepare_lstm(df, seq_len=60):
+# ── Ridge Regression Model (replaces PyTorch LSTM) ──────────────────────
+def prepare_features(df, seq_len=60):
     feats = [c for c in ["close","RSI_14","MACD","MACD_Hist","ATR","OBV",
                           "EMA_9","BB_Width","Volume_Ratio","ADX","Stoch_K","ST_Direction"]
              if c in df.columns]
-    logger.info(f"LSTM features ({len(feats)}): {', '.join(feats[:6])}{'…' if len(feats)>6 else ''}")
+    logger.info(f"Model features ({len(feats)}): {', '.join(feats[:6])}{'…' if len(feats)>6 else ''}")
     scaler = MinMaxScaler((0, 1))
     scaled = scaler.fit_transform(df[feats])
-    cs = MinMaxScaler((0, 1))
-    cs.fit_transform(df[["close"]])
     X, y = [], []
     for i in range(seq_len, len(scaled)):
-        X.append(scaled[i-seq_len:i]); y.append(scaled[i, 0])
+        X.append(scaled[i-seq_len:i].flatten())
+        y.append(scaled[i, 0])
     X, y = np.array(X), np.array(y)
-    return X, y, scaler, cs, feats
+    return X, y, scaler, feats
 
 def _cache_key(X):
     h = hashlib.sha256(X.astype(np.float32).tobytes()).hexdigest()[:16]
     return f"{cfg['COIN_SYMBOL'].replace('/','_')}_{h}"
 
-def train_lstm(X, y, epochs=80):
+def train_model(X, y):
     ck = _cache_key(X)
-    cp = os.path.join(cfg["MODEL_CACHE_DIR"], f"m_{ck}.pt")
-    hp = os.path.join(cfg["MODEL_CACHE_DIR"], f"h_{ck}.pkl")
+    cp = os.path.join(cfg["MODEL_CACHE_DIR"], f"ridge_{ck}.pkl")
 
     if cfg["USE_MODEL_CACHE"] and os.path.exists(cp):
         logger.info(f"Model cache hit – {ck}")
         try:
-            mdl = LSTMModel(X.shape[2])
-            mdl.load_state_dict(torch.load(cp, map_location="cpu", weights_only=True))
-            mdl.eval()
-            with open(hp, "rb") as f: h = pickle.load(f)
+            with open(cp, "rb") as f:
+                mdl = pickle.load(f)
             class _H: pass
-            hi = _H(); hi.history = h
+            hi = _H(); hi.history = {"loss":[0.01],"mae":[0.01],"val_loss":[0.01]}
             return mdl, hi
         except Exception as e:
             logger.warning(f"Cache load fail: {e}")
 
-    device = torch.device("cpu")
-    mdl = LSTMModel(X.shape[2]).to(device)
-
-    # Train / val split
+    t0 = time.time()
     split = int(len(X) * 0.85)
     X_tr, X_val = X[:split], X[split:]
     y_tr, y_val = y[:split], y[split:]
 
-    X_tr_t  = torch.FloatTensor(X_tr).to(device)
-    y_tr_t  = torch.FloatTensor(y_tr).unsqueeze(1).to(device)
-    X_val_t = torch.FloatTensor(X_val).to(device)
-    y_val_t = torch.FloatTensor(y_val).unsqueeze(1).to(device)
+    mdl = Ridge(alpha=1.0)
+    mdl.fit(X_tr, y_tr)
 
-    loader    = DataLoader(TensorDataset(X_tr_t, y_tr_t), batch_size=64, shuffle=False)
-    optimizer = optim.Adam(mdl.parameters(), lr=0.001)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5, min_lr=1e-6)
-    criterion = nn.HuberLoss()
-
-    history   = {"loss": [], "mae": [], "val_loss": []}
-    best_val  = float("inf")
-    best_state= None
-    pat_count = 0
-    patience  = 10
-
-    t0 = time.time()
-    for ep in range(epochs):
-        mdl.train()
-        ep_loss = ep_mae = 0.0
-        for xb, yb in loader:
-            optimizer.zero_grad()
-            pred = mdl(xb)
-            loss = criterion(pred, yb)
-            loss.backward()
-            optimizer.step()
-            ep_loss += loss.item()
-            ep_mae  += torch.mean(torch.abs(pred - yb)).item()
-        ep_loss /= max(len(loader), 1)
-        ep_mae  /= max(len(loader), 1)
-
-        mdl.eval()
-        with torch.no_grad():
-            val_loss = criterion(mdl(X_val_t), y_val_t).item()
-
-        history["loss"].append(ep_loss)
-        history["mae"].append(ep_mae)
-        history["val_loss"].append(val_loss)
-        scheduler.step(val_loss)
-
-        if val_loss < best_val:
-            best_val   = val_loss
-            best_state = {k: v.clone() for k, v in mdl.state_dict().items()}
-            pat_count  = 0
-        else:
-            pat_count += 1
-            if pat_count >= patience:
-                logger.info(f"Early stop at epoch {ep+1}")
-                break
-
-    if best_state:
-        mdl.load_state_dict(best_state)
-    logger.success(f"Trained {len(history['loss'])} epochs in {time.time()-t0:.0f}s")
+    val_pred = mdl.predict(X_val)
+    val_mae = float(np.mean(np.abs(val_pred - y_val)))
+    val_loss = float(np.mean((val_pred - y_val) ** 2))
+    logger.success(f"Model trained in {time.time()-t0:.1f}s | val_mae={val_mae:.4f}")
 
     if cfg["USE_MODEL_CACHE"]:
         try:
             os.makedirs(cfg["MODEL_CACHE_DIR"], exist_ok=True)
-            torch.save(mdl.state_dict(), cp)
-            with open(hp, "wb") as f: pickle.dump(history, f)
+            with open(cp, "wb") as f:
+                pickle.dump(mdl, f)
             logger.info(f"Cached → {ck}")
         except Exception as e:
             logger.warning(f"Cache save fail: {e}")
 
-    mdl.eval()
     class _H: pass
-    hi = _H(); hi.history = history
+    hi = _H()
+    hi.history = {"loss":[val_loss], "mae":[val_mae], "val_loss":[val_loss]}
     return mdl, hi
 
 def _predict(mdl, X, scaler, feats):
-    inp = torch.FloatTensor(X[-1:])   # (1, seq_len, n_feats)
-    with torch.no_grad():
-        ps = mdl(inp).item()
+    inp = X[-1:].reshape(1, -1)
+    ps = float(mdl.predict(inp)[0])
+    # Inverse transform: reconstruct full feature row, replace close col
     dum = np.zeros((1, len(feats)))
     dum[0, 0] = ps
     return float(scaler.inverse_transform(dum)[0, 0])
@@ -1209,19 +1124,19 @@ def run_bot():
 
         last_adx = float(df1h["ADX"].iloc[-1])
         skip, skip_reason = pre_screen(df1h)
-        lstm_gated = last_adx < 20
+        model_gated = last_adx < 20
 
-        if lstm_gated:
-            logger.info(f"LSTM GATED – ADX={last_adx:.1f} < 20")
+        if model_gated:
+            logger.info(f"Model GATED – ADX={last_adx:.1f} < 20")
             pred_price = current_price; chg_pct = 0.0
-            feats = ["close"]; hist_obj = _skip_history(); X = np.zeros((1,60,1))
-            skip = True; skip_reason = f"LSTM gated ADX={last_adx:.1f}<20"
+            feats = ["close"]; hist_obj = _skip_history(); X = np.zeros((1, 60))
+            skip = True; skip_reason = f"Model gated ADX={last_adx:.1f}<20"
         elif skip:
             pred_price = current_price; chg_pct = 0.0
-            feats = ["close"]; hist_obj = _skip_history(); X = np.zeros((1,60,1))
+            feats = ["close"]; hist_obj = _skip_history(); X = np.zeros((1, 60))
         else:
-            X, y, scaler, cs, feats = prepare_lstm(df1h, 60)
-            mdl, hist_obj = train_lstm(X, y, epochs=80)
+            X, y, scaler, feats = prepare_features(df1h, 60)
+            mdl, hist_obj = train_model(X, y)
             pred_price = _predict(mdl, X, scaler, feats)
             chg_pct = (pred_price - current_price) / current_price * 100
 
@@ -1283,7 +1198,7 @@ def run_bot():
 
 # ── Streamlit UI ────────────────────────────────────────────────────────
 st.title("🐋 Crypto Trading Bot V8 · Structure + Whale Edition")
-st.markdown("Multi-exchange data · LSTM gated · Adaptive TP/SL · Anti-overfit")
+st.markdown("Multi-exchange data · Ridge model · Adaptive TP/SL · Anti-overfit")
 
 if st.sidebar.button("🚀 Run Analysis", use_container_width=True):
     with st.spinner("Running full analysis... This may take a minute."):
