@@ -54,7 +54,7 @@ def _hash(pw: str) -> str:
 
 USERS = {
     "user1":   _hash("pass1234"),
-    "user2":   _hash("pass2234"),
+    "mrssher":   _hash("pass2234"),
     "user3":   _hash("pass3234"),
     "trader1": _hash("trade@123"),
     "admin":   _hash("admin@999"),
