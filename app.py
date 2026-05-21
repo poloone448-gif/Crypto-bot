@@ -53,7 +53,7 @@ def _hash(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
 USERS = {
-    "user1":   _hash("pass1234"),
+    "zafariqbal@":   _hash("pass1234"),
     "mrssher":   _hash("pass2234"),
     "user3":   _hash("pass3234"),
     "trader1": _hash("trade@123"),
