@@ -1,7 +1,8 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════╗
-║     CRYPTO BOT V9 · ENSEMBLE EDITION · STREAMLIT CLOUD SAFE           ║
-║     WITH 5-USER LOGIN SYSTEM                                           ║
+║   CRYPTO BOT V9 · ENSEMBLE + ORDER BLOCK EDITION                      ║
+║   ICT Order Block · Demand/Supply Zones · Break of Structure           ║
+║   WITH 5-USER LOGIN SYSTEM                                             ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -13,6 +14,7 @@ import hashlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 
 # ── Lightweight ML Only (Streamlit Cloud Safe) ──────────────────────────
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
@@ -37,68 +39,38 @@ warnings.filterwarnings("ignore")
 
 # ══════════════════════════════════════════════════════════════════════
 # LOGIN SYSTEM — 5 Users
-# (Change usernames/passwords as needed)
 # ══════════════════════════════════════════════════════════════════════
-
-# Passwords stored as SHA-256 hashes for basic security.
-# To generate a hash: hashlib.sha256("yourpassword".encode()).hexdigest()
-# Default credentials:
-#   user1 / pass1234
-#   user2 / pass2234
-#   user3 / pass3234
-#   trader1 / trade@123
-#   admin / admin@999
-
 def _hash(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
 USERS = {
-    "zafariqbal@":   _hash("pass1234"),
-    "mrssher":   _hash("pass2234"),
-    "user3":   _hash("pass3234"),
-    "trader1": _hash("trade@123"),
-    "admin":   _hash("admin@999"),
+    "zafariqbal@": _hash("pass1234"),
+    "mrssher":     _hash("pass2234"),
+    "user3":       _hash("pass3234"),
+    "trader1":     _hash("trade@123"),
+    "admin":       _hash("admin@999"),
 }
 
 def login_screen():
-    """Renders login form and returns True if authenticated."""
     st.markdown("""
     <style>
-        .login-box {
-            max-width: 380px;
-            margin: 80px auto;
-            padding: 2rem;
-            background: #161b22;
-            border-radius: 12px;
-            border: 1px solid #30363d;
-        }
-        .login-title {
-            text-align: center;
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #58a6ff;
-            margin-bottom: 0.2rem;
-        }
-        .login-sub {
-            text-align: center;
-            color: #8b949e;
-            font-size: 0.9rem;
-            margin-bottom: 1.5rem;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+        .login-title { text-align:center; font-size:1.8rem; font-weight:bold;
+                       color:#58a6ff; margin-bottom:0.2rem; }
+        .login-sub   { text-align:center; color:#8b949e; font-size:0.9rem;
+                       margin-bottom:1.5rem; }
+    </style>""", unsafe_allow_html=True)
 
     col_l, col_m, col_r = st.columns([1, 2, 1])
     with col_m:
-        st.markdown('<div class="login-title">🐋 Crypto Bot V9</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-sub">Ensemble + Walk-Forward Edition</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">🐋 Crypto Bot V9</div>',
+                    unsafe_allow_html=True)
+        st.markdown('<div class="login-sub">Ensemble + Order Block Edition</div>',
+                    unsafe_allow_html=True)
         st.markdown("---")
-
         username = st.text_input("👤 Username", placeholder="Enter username")
-        password = st.text_input("🔒 Password", type="password", placeholder="Enter password")
-
+        password = st.text_input("🔒 Password", type="password",
+                                 placeholder="Enter password")
         btn = st.button("🔐 Login", use_container_width=True)
-
         if btn:
             if username in USERS and USERS[username] == _hash(password):
                 st.session_state["authenticated"] = True
@@ -107,12 +79,10 @@ def login_screen():
                 st.rerun()
             else:
                 st.error("❌ Invalid username or password.")
-
         st.markdown("---")
         st.caption("🔑 Contact admin for credentials.")
 
 def check_auth():
-    """Returns True if user is logged in."""
     return st.session_state.get("authenticated", False)
 
 # ── Page Config ─────────────────────────────────────────────────────────
@@ -131,15 +101,19 @@ st.markdown("""
     .signal-buy  { color: #2ea043; font-size: 1.5rem; font-weight: bold; }
     .signal-sell { color: #f85149; font-size: 1.5rem; font-weight: bold; }
     .signal-hold { color: #8b949e; font-size: 1.5rem; font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
+    .ob-bull-box { background:#0d2818; border-left:4px solid #2ea043;
+                   padding:8px; border-radius:6px; margin:4px 0; }
+    .ob-bear-box { background:#2d0f0f; border-left:4px solid #f85149;
+                   padding:8px; border-radius:6px; margin:4px 0; }
+    .bos-label   { color:#f0883e; font-weight:bold; }
+</style>""", unsafe_allow_html=True)
 
 # ── Auth Gate ───────────────────────────────────────────────────────────
 if not check_auth():
     login_screen()
     st.stop()
 
-# ── Logger (Session-Safe) ────────────────────────────────────────────────
+# ── Logger ───────────────────────────────────────────────────────────────
 class Logger:
     def __init__(self):
         self.msgs = []
@@ -157,7 +131,6 @@ log = st.session_state.logger
 
 # ── Config ───────────────────────────────────────────────────────────────
 def get_config():
-    # ── Sidebar header with logout ───────────────────────────────────
     user = st.session_state.get("current_user", "user")
     col_a, col_b = st.sidebar.columns([2, 1])
     col_a.markdown(f"👤 **{user}**")
@@ -168,9 +141,12 @@ def get_config():
 
     st.sidebar.header("⚙️ Configuration")
     coin    = st.sidebar.text_input("Coin Symbol", "BTC/USDT")
-    tf_main = st.sidebar.selectbox("Main Timeframe", ["1h","4h","15m","30m"], index=0)
-    tf_htf  = st.sidebar.selectbox("Higher Timeframe", ["4h","1d","1h"], index=0)
-    balance = st.sidebar.number_input("Balance (USDT)", 100.0, 1_000_000.0, 1000.0, 100.0)
+    tf_main = st.sidebar.selectbox("Main Timeframe",
+                                   ["1h","4h","15m","30m"], index=0)
+    tf_htf  = st.sidebar.selectbox("Higher Timeframe",
+                                   ["4h","1d","1h"], index=0)
+    balance = st.sidebar.number_input("Balance (USDT)",
+                                      100.0, 1_000_000.0, 1000.0, 100.0)
     risk    = st.sidebar.slider("Risk per Trade (%)", 0.1, 3.0, 1.0, 0.1) / 100.0
     min_rr  = st.sidebar.slider("Min R:R", 1.0, 3.0, 1.5, 0.1)
 
@@ -178,6 +154,12 @@ def get_config():
     st.sidebar.subheader("🐋 Whale Settings")
     wvt = st.sidebar.slider("Whale Vol Threshold", 2.0, 5.0, 3.0, 0.5)
     wpm = st.sidebar.slider("Whale Min Move (%)", 0.1, 1.0, 0.3, 0.1) / 100
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📦 Order Block Settings")
+    ob_lookback   = st.sidebar.slider("OB Lookback Candles", 50, 200, 100, 10)
+    ob_min_move   = st.sidebar.slider("OB Min Impulse (%)", 0.5, 3.0, 1.0, 0.1) / 100
+    ob_zone_ext   = st.sidebar.slider("OB Zone Extension (candles)", 10, 60, 30, 5)
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🧠 Model Settings")
@@ -188,6 +170,8 @@ def get_config():
         "COIN": coin, "TF": tf_main, "HTF": tf_htf,
         "BALANCE": balance, "RISK": risk, "MIN_RR": min_rr,
         "WHALE_VOL_THRESH": wvt, "WHALE_MOVE_MIN": wpm,
+        "OB_LOOKBACK": ob_lookback, "OB_MIN_MOVE": ob_min_move,
+        "OB_ZONE_EXT": ob_zone_ext,
         "SEQ_LEN": seq_len, "USE_CACHE": use_cache,
         "OB_DEPTH": 20, "WALL_MULT": 5.0,
         "STRUCT_LOOKBACK": 75, "STRUCT_MIN_SWING": 0.008,
@@ -214,13 +198,8 @@ ex_pool = build_exchange_pool()
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_ohlcv(symbol: str, tf: str) -> pd.DataFrame:
-    """
-    ✅ FIXED V9: groupby ts bug resolved — reset_index() properly restores
-    timestamp as a column instead of leaving it as index.
-    """
-    limit = 500 if tf in ("4h","1d") else 1000
+    limit   = 500 if tf in ("4h","1d") else 1000
     results = []
-
     q        = queue.Queue()
     stop_evt = threading.Event()
 
@@ -264,8 +243,6 @@ def fetch_ohlcv(symbol: str, tf: str) -> pd.DataFrame:
     n_src    = combined["_src"].nunique()
 
     if n_src > 1:
-        # ✅ FIX: use reset_index() so 'ts' comes back as a column,
-        #         then rename to 'timestamp'.
         def _agg(g):
             vol = g["volume"].values
             w   = vol if vol.sum() > 0 else np.ones(len(g))
@@ -279,8 +256,8 @@ def fetch_ohlcv(symbol: str, tf: str) -> pd.DataFrame:
         merged = (combined
                   .groupby("ts", sort=True)
                   .apply(_agg)
-                  .reset_index()                         # ← ts wapas column banta hai
-                  .rename(columns={"ts": "timestamp"})) # ← consistent name
+                  .reset_index()
+                  .rename(columns={"ts": "timestamp"}))
     else:
         merged = (combined
                   .drop_duplicates("ts", keep="last")
@@ -288,12 +265,10 @@ def fetch_ohlcv(symbol: str, tf: str) -> pd.DataFrame:
                   .rename(columns={"ts": "timestamp"})
                   .reset_index(drop=True))
 
-    # Volume outlier cap
     q1, q3 = merged["volume"].quantile([0.25, 0.75])
     cap     = q3 + 5 * (q3 - q1)
     merged["volume"] = merged["volume"].clip(upper=cap)
 
-    # Fill gaps
     for col in ["open","high","low","close","volume"]:
         merged[col] = (merged[col]
                        .interpolate("linear")
@@ -332,7 +307,6 @@ def _supertrend(df, period=10, mult=3.0):
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    # ── Trend ───────────────────────────────────────────────────────
     df["EMA9"]   = df["close"].ewm(span=9,   adjust=False).mean()
     df["EMA21"]  = df["close"].ewm(span=21,  adjust=False).mean()
     df["EMA50"]  = df["close"].ewm(span=50,  adjust=False).mean()
@@ -343,7 +317,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["VWAP"] = ((typ * df["volume"]).cumsum()
                   / df["volume"].cumsum().replace(0, np.nan))
 
-    # ── Momentum ─────────────────────────────────────────────────────
     df["RSI"] = ta.momentum.RSIIndicator(
         df["close"], window=14, fillna=True).rsi()
     macd = ta.trend.MACD(df["close"], fillna=True)
@@ -363,7 +336,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["high"], df["low"], df["close"], window=20, fillna=True).cci()
     df["ROC"] = df["close"].pct_change(10).fillna(0)
 
-    # ── Volatility ───────────────────────────────────────────────────
     df["ATR"] = ta.volatility.AverageTrueRange(
         df["high"], df["low"], df["close"], window=14, fillna=True).average_true_range()
     bb = ta.volatility.BollingerBands(
@@ -384,7 +356,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
         ap[i] = np.sum(atr_vals[i-w:i] < atr_vals[i]) / w * 100
     df["ATR_Pct"] = ap
 
-    # ── Volume ───────────────────────────────────────────────────────
     df["OBV"]     = ta.volume.OnBalanceVolumeIndicator(
         df["close"], df["volume"], fillna=True).on_balance_volume()
     df["Vol_MA20"]  = df["volume"].rolling(20).mean().bfill()
@@ -400,7 +371,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
         vp[i] = np.sum(vol_vals[i-w:i] < vol_vals[i]) / w * 100
     df["Vol_Pct"] = vp
 
-    # ── Trend Strength ───────────────────────────────────────────────
     adx_i = ta.trend.ADXIndicator(
         df["high"], df["low"], df["close"], window=14, fillna=True)
     df["ADX"]     = adx_i.adx()
@@ -409,7 +379,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df = _supertrend(df)
 
-    # ── Price Action Features ────────────────────────────────────────
     body = (df["close"] - df["open"]).abs()
     rng  = (df["high"] - df["low"]).replace(0, np.nan)
     df["Body_Ratio"]    = (body / rng).fillna(0)
@@ -429,6 +398,219 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ══════════════════════════════════════════════════════════════════════
+# 🆕 ORDER BLOCK + DEMAND/SUPPLY ZONE ENGINE
+#    Strategy from chart: Green Box = Demand Zone (entry)
+#                         Red Box   = Stop Loss Zone (below demand)
+# ══════════════════════════════════════════════════════════════════════
+
+def detect_order_blocks(df: pd.DataFrame):
+    """
+    ICT / Smart Money Order Block Detection.
+
+    Bullish OB  → Last BEARISH candle before a strong upward impulse.
+                  This candle becomes a Demand Zone (Green Box on chart).
+                  Entry: top of OB   |  SL: below bottom of OB (Red Box).
+
+    Bearish OB  → Last BULLISH candle before a strong downward impulse.
+                  This candle becomes a Supply Zone (Red Box on chart).
+                  Entry: bottom of OB  |  SL: above top of OB.
+
+    Returns: (bull_obs, bear_obs) — lists of active (unmitigated) OBs.
+    """
+    lookback  = cfg["OB_LOOKBACK"]
+    min_move  = cfg["OB_MIN_MOVE"]
+
+    if len(df) < 30:
+        return [], []
+
+    rec = df.tail(lookback).reset_index(drop=True)
+    n   = len(rec)
+    bull_obs, bear_obs = [], []
+
+    for i in range(1, n - 4):
+        c_open  = float(rec["open"].iloc[i])
+        c_close = float(rec["close"].iloc[i])
+        c_high  = float(rec["high"].iloc[i])
+        c_low   = float(rec["low"].iloc[i])
+        volume  = float(rec["volume"].iloc[i])
+        vol_ma  = float(rec["Vol_MA20"].iloc[i]) if "Vol_MA20" in rec.columns else volume
+
+        # ── Bullish OB: bearish candle before upward impulse ──────────
+        if c_close < c_open:                          # bearish candle
+            window = min(i + 6, n)
+            future_high = rec["high"].iloc[i+1:window].max()
+            impulse = (future_high - c_close) / max(c_close, 1e-10)
+            if impulse >= min_move:
+                # Is this OB mitigated? (price came back into zone)
+                last_close = float(rec["close"].iloc[-1])
+                mitigated  = last_close < c_open    # price broke back below OB top
+
+                bull_obs.append({
+                    "idx":       i,
+                    "ob_top":    round(c_open,  8),   # top of OB (bearish candle open)
+                    "ob_bottom": round(c_low,   8),   # bottom of OB (low of candle)
+                    "sl_level":  round(c_low * 0.998, 8),  # SL just below OB
+                    "timestamp": rec["timestamp"].iloc[i],
+                    "impulse_pct": round(impulse * 100, 2),
+                    "vol_ratio": round(volume / max(vol_ma, 1e-10), 2),
+                    "mitigated": mitigated,
+                    "type":      "BULLISH_OB",
+                    "label":     "🟢 Demand Zone",
+                })
+
+        # ── Bearish OB: bullish candle before downward impulse ────────
+        elif c_close > c_open:                        # bullish candle
+            window = min(i + 6, n)
+            future_low = rec["low"].iloc[i+1:window].min()
+            impulse = (c_close - future_low) / max(c_close, 1e-10)
+            if impulse >= min_move:
+                last_close = float(rec["close"].iloc[-1])
+                mitigated  = last_close > c_open     # price broke back above OB bottom
+
+                bear_obs.append({
+                    "idx":       i,
+                    "ob_top":    round(c_high,  8),   # top of OB (high of bullish candle)
+                    "ob_bottom": round(c_open,  8),   # bottom of OB (open of bullish candle)
+                    "sl_level":  round(c_high * 1.002, 8),  # SL just above OB
+                    "timestamp": rec["timestamp"].iloc[i],
+                    "impulse_pct": round(impulse * 100, 2),
+                    "vol_ratio": round(volume / max(vol_ma, 1e-10), 2),
+                    "mitigated": mitigated,
+                    "type":      "BEARISH_OB",
+                    "label":     "🔴 Supply Zone",
+                })
+
+    # Keep only unmitigated OBs — most recent 5 each
+    active_bull = [ob for ob in bull_obs if not ob["mitigated"]][-5:]
+    active_bear = [ob for ob in bear_obs if not ob["mitigated"]][-5:]
+
+    log.info(f"📦 OBs found — Bullish: {len(active_bull)}, "
+             f"Bearish: {len(active_bear)}")
+    return active_bull, active_bear
+
+
+def detect_bos(df: pd.DataFrame, structure: dict):
+    """
+    Break of Structure (BOS) Detection.
+    A BOS confirms trend continuation after an Order Block retest.
+    BOS_UP   → price breaks above the last swing high  (bullish continuation)
+    BOS_DOWN → price breaks below the last swing low   (bearish continuation)
+    """
+    if not structure or structure["type"] in ("UNKNOWN",):
+        return "NONE", "No BOS"
+
+    price      = float(df["close"].iloc[-1])
+    prev_high  = structure.get("prev_high")
+    prev_low   = structure.get("prev_low")
+    last_high  = structure.get("last_high")
+    last_low   = structure.get("last_low")
+
+    if prev_high and last_high and price > prev_high * 1.002:
+        return "BOS_UP",   f"🔼 BOS Up — broke {prev_high:.5f}"
+    if prev_low  and last_low  and price < prev_low  * 0.998:
+        return "BOS_DOWN", f"🔽 BOS Down — broke {prev_low:.5f}"
+
+    if structure.get("breakout"):
+        return "BOS_UP",   "🔼 Breakout confirmed"
+    if structure.get("breakdown"):
+        return "BOS_DOWN", "🔽 Breakdown confirmed"
+
+    return "NONE", "No BOS yet"
+
+
+def find_nearest_ob(price: float, bull_obs: list, bear_obs: list):
+    """
+    Find the Order Block that price is currently closest to or inside.
+    Returns (ob, side) where side = 'bull' or 'bear', or (None, None).
+    """
+    in_bull, in_bear = None, None
+    min_dist_bull = min_dist_bear = float("inf")
+
+    for ob in bull_obs:
+        if ob["ob_bottom"] <= price <= ob["ob_top"] * 1.005:
+            dist = abs(price - (ob["ob_top"] + ob["ob_bottom"]) / 2)
+            if dist < min_dist_bull:
+                min_dist_bull = dist
+                in_bull = ob
+        elif price > ob["ob_bottom"] * 0.98:   # approaching from above
+            dist = price - ob["ob_top"]
+            if 0 <= dist < price * 0.02 and dist < min_dist_bull:
+                min_dist_bull = dist
+                in_bull = ob
+
+    for ob in bear_obs:
+        if ob["ob_bottom"] * 0.995 <= price <= ob["ob_top"]:
+            dist = abs(price - (ob["ob_top"] + ob["ob_bottom"]) / 2)
+            if dist < min_dist_bear:
+                min_dist_bear = dist
+                in_bear = ob
+        elif price < ob["ob_top"] * 1.02:
+            dist = ob["ob_bottom"] - price
+            if 0 <= dist < price * 0.02 and dist < min_dist_bear:
+                min_dist_bear = dist
+                in_bear = ob
+
+    if in_bull and in_bear:
+        return (in_bull, "bull") if min_dist_bull <= min_dist_bear else (in_bear, "bear")
+    if in_bull:  return in_bull, "bull"
+    if in_bear:  return in_bear, "bear"
+    return None, None
+
+
+def score_ob_signal(price: float, bull_obs: list, bear_obs: list,
+                    bos_type: str, is_bull_signal: bool):
+    """
+    Score the Order Block signal quality (0–10).
+    High score = price is retesting a fresh strong OB with BOS confirmation.
+    """
+    pts, notes = 0.0, []
+
+    ob, side = find_nearest_ob(price, bull_obs, bear_obs)
+
+    if ob is None:
+        notes.append("No nearby OB")
+        return 0.0, notes, ob
+
+    match = (side == "bull" and is_bull_signal) or \
+            (side == "bear" and not is_bull_signal)
+
+    if not match:
+        notes.append(f"OB side mismatch ({ob['type']})")
+        return 1.0, notes, ob
+
+    # Inside OB zone — best entry
+    if side == "bull" and ob["ob_bottom"] <= price <= ob["ob_top"]:
+        pts += 4.0; notes.append("✅ Price INSIDE Demand Zone")
+    elif side == "bear" and ob["ob_bottom"] <= price <= ob["ob_top"]:
+        pts += 4.0; notes.append("✅ Price INSIDE Supply Zone")
+    else:
+        pts += 2.0; notes.append("⚠️ Price approaching OB")
+
+    # Impulse strength
+    if ob["impulse_pct"] >= 3.0:
+        pts += 2.0; notes.append(f"Strong impulse {ob['impulse_pct']:.1f}%")
+    elif ob["impulse_pct"] >= 1.5:
+        pts += 1.0; notes.append(f"Moderate impulse {ob['impulse_pct']:.1f}%")
+
+    # Volume at OB
+    if ob["vol_ratio"] >= 1.5:
+        pts += 1.5; notes.append(f"High OB volume {ob['vol_ratio']:.1f}x")
+    elif ob["vol_ratio"] >= 1.0:
+        pts += 0.5; notes.append(f"Normal OB volume {ob['vol_ratio']:.1f}x")
+
+    # BOS confirmation
+    bos_ok = (bos_type == "BOS_UP" and is_bull_signal) or \
+             (bos_type == "BOS_DOWN" and not is_bull_signal)
+    if bos_ok:
+        pts += 2.5; notes.append("✅ BOS Confirmed")
+    else:
+        notes.append("⏳ Waiting BOS")
+
+    score = round(min(10.0, pts), 1)
+    return score, notes, ob
+
+
+# ══════════════════════════════════════════════════════════════════════
 # ENSEMBLE MODEL V9
 # ══════════════════════════════════════════════════════════════════════
 FEATURE_COLS = [
@@ -440,47 +622,27 @@ FEATURE_COLS = [
 ]
 
 def _clean_Xy(X: np.ndarray, y: np.ndarray):
-    """
-    Remove rows where X or y contain NaN or Inf.
-    Also clip extreme values to prevent numerical blow-up.
-    """
-    # Replace inf with nan first
     X = np.where(np.isinf(X), np.nan, X)
     y = np.where(np.isinf(y), np.nan, y)
-
-    # Column-wise median imputation for X (safer than row-drop for time series)
     col_medians = np.nanmedian(X, axis=0)
     nan_mask_X  = np.isnan(X)
     inds = np.where(nan_mask_X)
     X[inds] = np.take(col_medians, inds[1])
-
-    # Drop rows where y is still nan
     valid = ~np.isnan(y)
     X, y  = X[valid], y[valid]
-
-    # Clip to ±10 std to prevent outlier blow-up
     std = X.std(axis=0, keepdims=True).clip(min=1e-8)
     X   = np.clip(X, -10 * std, 10 * std)
-
     return X, y
 
 def build_features(df: pd.DataFrame, seq_len: int = 60):
     feats  = [c for c in FEATURE_COLS if c in df.columns]
     log.info(f"🧠 Features ({len(feats)}): {', '.join(feats[:8])}…")
-
-    # ── Pre-clean the raw DataFrame columns ─────────────────────────
     raw = df[feats].copy()
-    # Forward-fill then backward-fill, then fill any remaining with 0
     raw = raw.ffill().bfill().fillna(0)
-    # Replace inf values
     raw = raw.replace([np.inf, -np.inf], 0)
-
     scaler = RobustScaler()
     scaled = scaler.fit_transform(raw.values)
-
-    # Replace any NaN/Inf that survived scaling
     scaled = np.nan_to_num(scaled, nan=0.0, posinf=0.0, neginf=0.0)
-
     X, y = [], []
     for i in range(seq_len, len(scaled)):
         window = scaled[i-seq_len:i]
@@ -493,17 +655,8 @@ def build_features(df: pd.DataFrame, seq_len: int = 60):
         row = np.concatenate([flat, stats])
         X.append(row)
         y.append(scaled[i, 0])
-
     X_arr, y_arr = np.array(X), np.array(y)
-
-    # Final safety clean
     X_arr, y_arr = _clean_Xy(X_arr, y_arr)
-
-    nan_x = np.isnan(X_arr).sum()
-    nan_y = np.isnan(y_arr).sum()
-    if nan_x > 0 or nan_y > 0:
-        log.warning(f"Residual NaN after clean — X:{nan_x} y:{nan_y}")
-
     log.info(f"Feature matrix: {X_arr.shape}, samples: {len(y_arr)}")
     return X_arr, y_arr, scaler, feats
 
@@ -518,11 +671,8 @@ def walk_forward_validate(X, y, n_splits=5):
             break
         X_tr,  y_tr  = X[:train_end],  y[:train_end]
         X_val, y_val = X[val_start:val_end], y[val_start:val_end]
-
-        # Per-fold clean (safety)
         X_tr,  y_tr  = _clean_Xy(X_tr.copy(),  y_tr.copy())
         X_val, y_val = _clean_Xy(X_val.copy(), y_val.copy())
-
         if len(X_tr) < 10 or len(X_val) < 2:
             continue
         try:
@@ -535,13 +685,10 @@ def walk_forward_validate(X, y, n_splits=5):
     return float(np.mean(maes)) if maes else 0.0
 
 def build_ensemble(X, y):
-    # Global clean before split
     X, y   = _clean_Xy(X.copy(), y.copy())
-
     split  = int(len(X) * 0.80)
     X_tr,  X_val = X[:split],  X[split:]
     y_tr,  y_val = y[:split],  y[split:]
-
     models = {
         "Ridge": Ridge(alpha=0.5),
         "GBM":   GradientBoostingRegressor(
@@ -560,7 +707,6 @@ def build_ensemble(X, y):
         models["LGB"] = LGBMRegressor(
             n_estimators=80, max_depth=4, learning_rate=0.05,
             subsample=0.8, random_state=42, verbose=-1, n_jobs=1)
-
     trained, weights, val_maes = {}, {}, {}
     for name, m in models.items():
         try:
@@ -573,10 +719,8 @@ def build_ensemble(X, y):
             log.success(f"  {name}: MAE={mae:.5f}")
         except Exception as e:
             log.warning(f"  {name} failed: {e}")
-
     total_w = sum(weights.values())
     norm_w  = {k: v/total_w for k, v in weights.items()}
-
     wf_mae = walk_forward_validate(X, y)
     log.info(f"Walk-forward MAE: {wf_mae:.5f}")
     return trained, norm_w, val_maes, wf_mae
@@ -587,7 +731,6 @@ def ensemble_predict(trained, weights, X, scaler, feats):
     for name, m in trained.items():
         w = weights.get(name, 0)
         pred_scaled += w * float(m.predict(inp)[0])
-
     n     = len(feats)
     dummy = np.zeros((1, n))
     dummy[0, 0] = pred_scaled
@@ -599,11 +742,9 @@ def ensemble_predict(trained, weights, X, scaler, feats):
 def analyze_structure(df, lookback=75):
     if len(df) < lookback + 7:
         return _empty_struct("UNKNOWN", 0, "Insufficient data")
-
     rec = df.tail(lookback).reset_index(drop=True)
     hi, lo, cl = rec["high"].values, rec["low"].values, rec["close"].values
     s_highs, s_lows = [], []
-
     for i in range(3, len(rec) - 3):
         lh, rh = hi[i-3:i], hi[i+1:i+4]
         ll, rl = lo[i-3:i], lo[i+1:i+4]
@@ -617,29 +758,24 @@ def analyze_structure(df, lookback=75):
             base = max(float(lo[i]), 1e-10)
             if (max(hi[max(0,i-5):i]) - lo[i]) / base >= cfg["STRUCT_MIN_SWING"]:
                 s_lows.append((i, float(lo[i])))
-
     if len(s_highs) < 2 or len(s_lows) < 2:
         return _empty_struct("RANGING", 35, "Insufficient swings")
-
     last_h = s_highs[-3:] if len(s_highs) >= 3 else s_highs
     last_l = s_lows[-3:]  if len(s_lows)  >= 3 else s_lows
     hh = all(last_h[i][1] > last_h[i-1][1] for i in range(1, len(last_h)))
     hl = all(last_l[i][1] > last_l[i-1][1] for i in range(1, len(last_l)))
     lh = all(last_h[i][1] < last_h[i-1][1] for i in range(1, len(last_h)))
     ll = all(last_l[i][1] < last_l[i-1][1] for i in range(1, len(last_l)))
-
     last_close = float(cl[-1])
     prev_high  = s_highs[-2][1] if len(s_highs) >= 2 else float(hi[-1])
     prev_low   = s_lows[-2][1]  if len(s_lows)  >= 2 else float(lo[-1])
     breakout   = last_close > prev_high * 1.003
     breakdown  = last_close < prev_low  * 0.997
-
     if hh and hl:        stype, conf = "UPTREND",   90 if breakout  else 78
     elif lh and ll:      stype, conf = "DOWNTREND", 90 if breakdown else 78
     elif breakout:       stype, conf = "BREAKOUT",  72
     elif breakdown:      stype, conf = "BREAKDOWN", 72
     else:                stype, conf = "RANGING",   45
-
     return {
         "type": stype, "confidence": conf,
         "swing_highs": s_highs, "swing_lows": s_lows,
@@ -680,29 +816,24 @@ def analyze_ob(symbol, price):
     ob = fetch_order_book(symbol)
     if not ob:
         return _empty_ob()
-
     bids = np.array(ob["bids"][:cfg["OB_DEPTH"]], dtype=float)
     asks = np.array(ob["asks"][:cfg["OB_DEPTH"]], dtype=float)
     if bids.size == 0 or asks.size == 0:
         return _empty_ob()
-
     bid_usdt = float(np.sum(bids[:,0] * bids[:,1]))
     ask_usdt = float(np.sum(asks[:,0] * asks[:,1]))
     imbal    = bid_usdt / max(bid_usdt + ask_usdt, 1e-10)
-
     avg_b  = float(np.mean(bids[:,1]))
     avg_a  = float(np.mean(asks[:,1]))
     b_walls = [(float(bids[i,0]), float(bids[i,1]))
                for i in range(len(bids)) if bids[i,1] >= avg_b * cfg["WALL_MULT"]]
     a_walls = [(float(asks[i,0]), float(asks[i,1]))
                for i in range(len(asks)) if asks[i,1] >= avg_a * cfg["WALL_MULT"]]
-
     if   imbal >= 0.65: sig, note = "BULL",      f"Heavy bid {imbal:.1%}"
     elif imbal <= 0.35: sig, note = "BEAR",      f"Heavy ask {1-imbal:.1%}"
     elif imbal >= 0.55: sig, note = "MILD_BULL", f"Mild bid {imbal:.1%}"
     elif imbal <= 0.45: sig, note = "MILD_BEAR", f"Mild ask {1-imbal:.1%}"
     else:               sig, note = "NEUTRAL",   f"Balanced {imbal:.1%}"
-
     return {
         "imbalance": round(imbal, 4),
         "bid_usdt": round(bid_usdt, 2),
@@ -723,7 +854,6 @@ def _empty_ob():
 def detect_whales(df):
     if len(df) < 20:
         return _empty_whale()
-
     ma20    = df["volume"].rolling(20).mean().bfill()
     candles = []
     for i in range(max(0, len(df)-50), len(df)):
@@ -743,14 +873,12 @@ def detect_whales(df):
                 "direction": "BUY" if bull else "SELL",
                 "type": "ACCUM" if bull else "DISTRIB",
             })
-
     rec      = df.tail(30)
     bull_vol = float(rec.loc[rec["close"]>=rec["open"], "volume"].sum())
     bear_vol = float(rec.loc[rec["close"]<rec["open"],  "volume"].sum())
     cvd_r    = bull_vol / max(bull_vol + bear_vol, 1e-10)
     cvd_t    = ("BULL" if cvd_r >= 0.60 else
                 "BEAR" if cvd_r <= 0.40 else "NEUTRAL")
-
     return {
         "whale_candles": candles,
         "recent": candles[-1] if candles else None,
@@ -768,7 +896,6 @@ def _empty_whale():
 def whale_score(ob, wc, signal):
     pts, notes = 0.0, []
     is_bull = "BUY" in signal
-
     if ob.get("available"):
         s = ob["ob_signal"]
         m = {"BULL": 4, "MILD_BULL": 2, "NEUTRAL": 1, "MILD_BEAR": 0, "BEAR": 0}
@@ -780,7 +907,6 @@ def whale_score(ob, wc, signal):
             pts += 1; notes.append(f"Ask wall ({len(ob['ask_walls'])} lvl)")
     else:
         notes.append("OB unavailable")
-
     cvd, cvd_r = wc["cvd_trend"], wc["cvd_ratio"]
     if (is_bull and cvd=="BULL") or (not is_bull and cvd=="BEAR"):
         pts += 3; notes.append(f"CVD aligned ({cvd_r:.1%})")
@@ -788,7 +914,6 @@ def whale_score(ob, wc, signal):
         pts += 1; notes.append("CVD neutral")
     else:
         notes.append("CVD opposing")
-
     rw = wc.get("recent")
     if rw:
         match = (is_bull and rw["direction"]=="BUY") or (not is_bull and rw["direction"]=="SELL")
@@ -798,7 +923,6 @@ def whale_score(ob, wc, signal):
             notes.append(f"Whale opposing {rw['type']}")
     else:
         notes.append("No whale candle")
-
     score = round(min(10.0, pts), 1)
     label = ("🐋 CONFIRMED" if score>=7.5 else
              "🐟 PARTIAL"   if score>=5.0 else
@@ -806,7 +930,7 @@ def whale_score(ob, wc, signal):
     return score, label, notes
 
 # ══════════════════════════════════════════════════════════════════════
-# SIGNAL ENGINE V9
+# SIGNAL ENGINE V9 — ENHANCED WITH ORDER BLOCK
 # ══════════════════════════════════════════════════════════════════════
 def detect_patterns(df):
     if len(df) < 5:
@@ -863,7 +987,6 @@ def detect_divergences(df, lookback=30):
 
     ph, pl = swings(price, sw)
     bull_div = bear_div = False
-
     if len(pl) >= 2:
         p1, p2 = pl[-2], pl[-1]
         if price[p2] < price[p1]*0.999 and rsi[p2] > rsi[p1]+1.5:
@@ -872,13 +995,11 @@ def detect_divergences(df, lookback=30):
         p1, p2 = ph[-2], ph[-1]
         if price[p2] > price[p1]*1.001 and rsi[p2] < rsi[p1]-1.5:
             bear_div = True
-
     half = lookback // 2
     pt = price[-1] - price[-half] if half < len(price) else 0
     ot = obv[-1]   - obv[-half]   if half < len(obv)   else 0
     if pt < -price[-1]*0.005 and ot > 0: bull_div = True
     elif pt > price[-1]*0.005 and ot < 0: bear_div = True
-
     return bull_div, bear_div
 
 def get_htf_bias(df4h):
@@ -896,9 +1017,9 @@ def get_htf_bias(df4h):
         float(last["ADX_Pos"]) > float(last["ADX_Neg"]),
     ]
     bull = sum(checks); tot = len(checks)
-    if bull >= int(tot*0.7):        return "BULL",    f"4H Bullish ({bull}/{tot})"
-    elif (tot-bull) >= int(tot*0.7): return "BEAR",   f"4H Bearish ({tot-bull}/{tot})"
-    else:                            return "NEUTRAL", f"4H Neutral (B:{bull} Br:{tot-bull})"
+    if bull >= int(tot*0.7):         return "BULL",    f"4H Bullish ({bull}/{tot})"
+    elif (tot-bull) >= int(tot*0.7): return "BEAR",    f"4H Bearish ({tot-bull}/{tot})"
+    else:                            return "NEUTRAL",  f"4H Neutral (B:{bull} Br:{tot-bull})"
 
 def classify_regime(df):
     last  = df.iloc[-1]
@@ -913,7 +1034,6 @@ def classify_regime(df):
     q40   = float(df["BB_Width"].quantile(0.40))
     pb    = price > e9 > e50 > e200
     nb    = price < e9 < e50 < e200
-
     if atp > 85 and bbw > q80:               return "VOLATILE",     "⚡ Very high volatility"
     if adx >= 35 and adxp > adxn and pb:     return "STRONG_BULL",  "🚀 Very strong uptrend"
     if adx >= 35 and adxn > adxp and nb:     return "STRONG_BEAR",  "💀 Very strong downtrend"
@@ -935,7 +1055,13 @@ def find_sr(df, lookback=100, gap_pct=0.005):
             float(min(vr)) if vr else price*1.08)
 
 def generate_signal_v9(df, pred_price, htf_bias, patterns,
-                        bull_div, bear_div, whale_sc, structure):
+                        bull_div, bear_div, whale_sc, structure,
+                        ob_score, ob_side):
+    """
+    Enhanced signal engine — Order Block score adds weight to signal quality.
+    ob_score: 0–10 from OB engine
+    ob_side: 'bull', 'bear', or None
+    """
     last    = df.iloc[-1]
     price   = float(last["close"])
     chg_pct = (pred_price - price) / price * 100
@@ -945,8 +1071,8 @@ def generate_signal_v9(df, pred_price, htf_bias, patterns,
     regime, _ = classify_regime(df)
     if regime == "VOLATILE":
         return "HOLD", 0, "Volatile regime"
-    if regime == "RANGING" and abs(chg_pct) < 0.8:
-        return "HOLD", 0, "Ranging + no momentum"
+    if regime == "RANGING" and abs(chg_pct) < 0.8 and ob_score < 5:
+        return "HOLD", 0, "Ranging + no OB signal"
 
     adx    = float(last["ADX"])
     adxp   = float(last["ADX_Pos"])
@@ -967,6 +1093,14 @@ def generate_signal_v9(df, pred_price, htf_bias, patterns,
     def score_side(is_bull):
         pts, active = 0.0, []
 
+        # ── Order Block Score (NEW — most important) ─────────────────
+        if ob_side == ("bull" if is_bull else "bear") and ob_score >= 5:
+            pts += ob_score * 0.4           # up to +4 pts from OB
+            active.append(f"OB_Zone({ob_score:.1f})")
+        elif ob_score >= 7 and ob_side is None:
+            pts += 1.5; active.append("OB_near")
+
+        # ── Classic indicators ────────────────────────────────────────
         if (macd_b and is_bull) or (not macd_b and not is_bull):
             pts += 2.0; active.append("MACD")
         ema_ok = (price>float(last["EMA9"])>float(last["EMA50"])
@@ -990,7 +1124,6 @@ def generate_signal_v9(df, pred_price, htf_bias, patterns,
                 or (pred_price<price*0.997 and not is_bull)):
             conf = min(1.5, 1.5 * body_r)
             pts += conf; active.append(f"Model({conf:.1f})")
-
         bull_pats = ["bull_engulf","hammer","morn_star"]
         bear_pats = ["bear_engulf","shoot_star","eve_star"]
         plist = bull_pats if is_bull else bear_pats
@@ -1032,12 +1165,17 @@ def generate_signal_v9(df, pred_price, htf_bias, patterns,
         if stype in gates and not gates[stype]:
             return "HOLD", fs, f"Structure gate: {stype}"
 
-    return raw, fs, f"Score {fs:.1f} | {len(active)} factors"
+    return raw, fs, f"Score {fs:.1f} | OB:{ob_score} | {len(active)} factors"
 
 # ══════════════════════════════════════════════════════════════════════
-# TP/SL
+# TP/SL — OB-enhanced
 # ══════════════════════════════════════════════════════════════════════
-def compute_tp_sl_v9(price, df, signal, strength, htf_bias):
+def compute_tp_sl_v9(price, df, signal, strength, htf_bias,
+                     nearest_ob=None):
+    """
+    If price is inside/near an Order Block, use OB top/bottom
+    as precise SL levels instead of ATR-based guess.
+    """
     if "HOLD" in signal:
         return price*0.98, {"TP1": price*1.02, "TP2": None}, {
             "rr_ratio": 0, "cancel_reason": "HOLD"}
@@ -1062,17 +1200,23 @@ def compute_tp_sl_v9(price, df, signal, strength, htf_bias):
 
     tp1 = price + d * atr * tp1_m
     tp2 = (price + d * atr * tp2_m) if tp2_m > 0 else None
-    sl  = price - d * atr * sl_m
+
+    # ── OB-precise SL ─────────────────────────────────────────────────
+    if nearest_ob is not None:
+        sl = float(nearest_ob["sl_level"])
+        log.info(f"📦 OB SL used: {sl:.6f}")
+    else:
+        sl = price - d * atr * sl_m
 
     sup, res = find_sr(df)
     if "BUY" in signal:
         if tp1 > res: tp1 = res * 0.997
         if tp2 and tp2 > res: tp2 = res * 0.997
-        if sl < sup: sl = sup * 1.003
+        if sl < sup and nearest_ob is None: sl = sup * 1.003
     else:
         if tp1 < sup: tp1 = sup * 1.003
         if tp2 and tp2 < sup: tp2 = sup * 1.003
-        if sl > res: sl = res * 0.997
+        if sl > res and nearest_ob is None: sl = res * 0.997
 
     tp1_d = abs(tp1 - price)
     sl_d  = abs(sl  - price)
@@ -1093,6 +1237,7 @@ def compute_tp_sl_v9(price, df, signal, strength, htf_bias):
         "sl_pct":  round(sl_d/price*100, 2),
         "nearest_support": sup,
         "nearest_resistance": res,
+        "ob_sl_used": nearest_ob is not None,
     }
 
 def compute_position_size(entry, sl, balance, risk_pct,
@@ -1135,16 +1280,26 @@ def run_analysis():
 
         price = float(df["close"].iloc[-1])
 
-        patterns = detect_patterns(df)
+        patterns  = detect_patterns(df)
         bull_div, bear_div = detect_divergences(df)
         structure = analyze_structure(df, cfg["STRUCT_LOOKBACK"])
+
+        # ── Order Block Analysis (NEW) ─────────────────────────────
+        log.info("📦 Detecting Order Blocks...")
+        bull_obs, bear_obs = detect_order_blocks(df)
+        bos_type, bos_desc = detect_bos(df, structure)
+        nearest_ob, ob_side = find_nearest_ob(price, bull_obs, bear_obs)
+        log.info(f"BOS: {bos_type} | Nearest OB side: {ob_side}")
 
         ob_res = analyze_ob(cfg["COIN"], price)
         wc_res = detect_whales(df)
 
         adx_val = float(df["ADX"].iloc[-1])
-        if adx_val < 20:
-            log.info(f"Model gated — ADX={adx_val:.1f}<20")
+        if adx_val < 20 and (nearest_ob is None or
+                             (nearest_ob and
+                              score_ob_signal(price, bull_obs, bear_obs,
+                                             bos_type, True)[0] < 5)):
+            log.info(f"Model gated — ADX={adx_val:.1f}<20 & no strong OB")
             pred_price = price
         else:
             log.info("🧠 Building ensemble model...")
@@ -1154,31 +1309,47 @@ def run_analysis():
                 pred_price = price
             else:
                 trained, weights, val_maes, wf_mae = build_ensemble(X, y)
-                pred_price = ensemble_predict(trained, weights, X, scaler, feats)
+                pred_price = ensemble_predict(trained, weights, X,
+                                              scaler, feats)
                 log.success(
                     f"Prediction: {pred_price:.6f} "
                     f"({(pred_price-price)/price*100:+.2f}%)")
 
         ws_pre, wl_pre, wn_pre = whale_score(ob_res, wc_res, "BUY")
 
+        # Pre-score OB to pass into signal engine
+        is_bull_guess = pred_price >= price
+        ob_score_val, ob_score_notes, _ = score_ob_signal(
+            price, bull_obs, bear_obs, bos_type, is_bull_guess)
+
         signal, sig_score, sig_reason = generate_signal_v9(
             df, pred_price, htf_bias, patterns,
-            bull_div, bear_div, ws_pre, structure)
+            bull_div, bear_div, ws_pre, structure,
+            ob_score_val, ob_side)
+
+        # Final OB score with actual signal direction
+        is_bull_final = "BUY" in signal
+        ob_score_f, ob_notes_f, active_ob = score_ob_signal(
+            price, bull_obs, bear_obs, bos_type, is_bull_final)
 
         ws, wl, wn = whale_score(ob_res, wc_res, signal)
 
         sl, tp_levels, tp_info = compute_tp_sl_v9(
-            price, df, signal, 50, htf_bias)
+            price, df, signal, 50, htf_bias,
+            nearest_ob=active_ob)
 
         cancel = tp_info.get("cancel_reason", "")
         final_signal = signal if "valid" in cancel.lower() else "HOLD"
 
         rr = tp_info.get("rr_ratio", 0)
-        if   rr>=2.5 and ws>=7 and sig_score>=8: tier="A+"
-        elif rr>=2.0 and ws>=5 and sig_score>=6: tier="A"
-        elif rr>=1.5 and ws>=3 and sig_score>=5: tier="B"
-        elif rr>=1.2:                             tier="C"
-        else:                                     tier="D"
+        ob_bonus = ob_score_f >= 7
+        if   rr>=2.5 and ws>=7 and sig_score>=8:           tier="A+"
+        elif rr>=2.0 and ws>=5 and sig_score>=6:           tier="A"
+        elif rr>=2.0 and ob_bonus and sig_score>=5:        tier="A"   # OB boost
+        elif rr>=1.5 and ws>=3 and sig_score>=5:           tier="B"
+        elif rr>=1.5 and ob_bonus:                         tier="B"   # OB boost
+        elif rr>=1.2:                                      tier="C"
+        else:                                              tier="D"
 
         pos = compute_position_size(
             price, sl, cfg["BALANCE"],
@@ -1195,6 +1366,12 @@ def run_analysis():
             "htf_desc": htf_desc, "tp_info": tp_info,
             "patterns": patterns, "bull_div": bull_div,
             "bear_div": bear_div, "sig_reason": sig_reason,
+            # Order Block results
+            "bull_obs": bull_obs, "bear_obs": bear_obs,
+            "bos_type": bos_type, "bos_desc": bos_desc,
+            "ob_score": ob_score_f, "ob_notes": ob_notes_f,
+            "ob_side": ob_side, "active_ob": active_ob,
+            # Data
             "df": df, "df_htf": df_htf, "ob": ob_res, "wc": wc_res,
             "cancel": cancel, "pos": pos,
         }
@@ -1210,15 +1387,15 @@ def run_analysis():
 # ══════════════════════════════════════════════════════════════════════
 # STREAMLIT UI
 # ══════════════════════════════════════════════════════════════════════
-st.title("🐋 Crypto Bot V9 · Ensemble + Walk-Forward")
+st.title("🐋 Crypto Bot V9 · Ensemble + Order Block")
 st.caption(
-    f"Multi-source · Ensemble ML · Anti-Overfit · "
+    f"ICT OB · Demand/Supply Zones · BOS · Ensemble ML · "
     f"Logged in as **{st.session_state.get('current_user','')}**")
 
 run_btn = st.sidebar.button("🚀 Run Analysis", use_container_width=True)
 
 if run_btn:
-    with st.spinner("Analysing… (30-60 sec on first run)"):
+    with st.spinner("Analysing… (30–60 sec on first run)"):
         res = run_analysis()
 
     if "error" in res:
@@ -1228,6 +1405,7 @@ if run_btn:
         with st.expander("📋 Execution Logs", expanded=False):
             st.text(log.text())
 
+        # ── Signal Header ─────────────────────────────────────────────
         sig       = res["signal"]
         sig_color = ("signal-buy" if "BUY" in sig else
                      "signal-sell" if "SELL" in sig else "signal-hold")
@@ -1238,16 +1416,88 @@ if run_btn:
             unsafe_allow_html=True)
         st.caption(res.get("sig_reason",""))
 
+        # ── Key Metrics ───────────────────────────────────────────────
         c1,c2,c3,c4,c5,c6 = st.columns(6)
-        c1.metric("Entry",     f"{res['entry']:.6f}")
-        c2.metric("Stop Loss", f"{res['sl']:.6f}")
-        c3.metric("TP1",       f"{res['tp'].get('TP1','N/A')}")
-        c4.metric("TP2",       f"{res['tp'].get('TP2','N/A') or 'N/A'}")
-        c5.metric("R:R",       f"1:{res['rr']:.2f}")
-        c6.metric("Prediction",
-                  f"{res['pred_price']:.5f}",
+        c1.metric("Entry",      f"{res['entry']:.6f}")
+        c2.metric("Stop Loss",  f"{res['sl']:.6f}",
+                  "📦 OB-precise" if res["tp_info"].get("ob_sl_used") else "ATR")
+        c3.metric("TP1",        f"{res['tp'].get('TP1','N/A')}")
+        c4.metric("TP2",        f"{res['tp'].get('TP2','N/A') or 'N/A'}")
+        c5.metric("R:R",        f"1:{res['rr']:.2f}")
+        c6.metric("Prediction", f"{res['pred_price']:.5f}",
                   f"{res['chg_pct']:+.2f}%")
 
+        st.markdown("---")
+
+        # ── ORDER BLOCK SECTION (NEW) ─────────────────────────────────
+        st.subheader("📦 Order Block Analysis  (ICT / SMC Strategy)")
+
+        ob_col1, ob_col2, ob_col3 = st.columns(3)
+        with ob_col1:
+            bos_icon = "🔼" if res["bos_type"]=="BOS_UP" else \
+                       "🔽" if res["bos_type"]=="BOS_DOWN" else "⏸"
+            st.metric("Break of Structure",
+                      f"{bos_icon} {res['bos_type']}",
+                      res["bos_desc"])
+        with ob_col2:
+            ob_side_txt = (res["ob_side"] or "None").upper()
+            ob_color    = ("🟢" if res["ob_side"]=="bull" else
+                           "🔴" if res["ob_side"]=="bear" else "⚪")
+            st.metric("Nearest OB", f"{ob_color} {ob_side_txt}",
+                      f"Score {res['ob_score']}/10")
+        with ob_col3:
+            if res["active_ob"]:
+                aob = res["active_ob"]
+                st.metric("OB Zone",
+                          f"{aob['ob_bottom']:.5f} – {aob['ob_top']:.5f}",
+                          f"Impulse {aob['impulse_pct']}%")
+            else:
+                st.metric("OB Zone", "None detected", "")
+
+        # OB notes
+        if res.get("ob_notes"):
+            for note in res["ob_notes"]:
+                st.caption(note)
+
+        # Bull OBs table
+        with st.expander(f"🟢 Bullish Demand Zones ({len(res['bull_obs'])})",
+                         expanded=len(res['bull_obs']) > 0):
+            if res["bull_obs"]:
+                rows = []
+                for ob in reversed(res["bull_obs"]):
+                    rows.append({
+                        "Zone Bottom": f"{ob['ob_bottom']:.6f}",
+                        "Zone Top":    f"{ob['ob_top']:.6f}",
+                        "SL Level":    f"{ob['sl_level']:.6f}",
+                        "Impulse %":   f"{ob['impulse_pct']}%",
+                        "Vol Ratio":   f"{ob['vol_ratio']}x",
+                        "Status": "🟢 Active",
+                    })
+                st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            else:
+                st.info("No bullish demand zones found")
+
+        # Bear OBs table
+        with st.expander(f"🔴 Bearish Supply Zones ({len(res['bear_obs'])})",
+                         expanded=len(res['bear_obs']) > 0):
+            if res["bear_obs"]:
+                rows = []
+                for ob in reversed(res["bear_obs"]):
+                    rows.append({
+                        "Zone Bottom": f"{ob['ob_bottom']:.6f}",
+                        "Zone Top":    f"{ob['ob_top']:.6f}",
+                        "SL Level":    f"{ob['sl_level']:.6f}",
+                        "Impulse %":   f"{ob['impulse_pct']}%",
+                        "Vol Ratio":   f"{ob['vol_ratio']}x",
+                        "Status": "🔴 Active",
+                    })
+                st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            else:
+                st.info("No bearish supply zones found")
+
+        st.markdown("---")
+
+        # ── Structure + Whale ─────────────────────────────────────────
         cS, cW = st.columns(2)
         with cS:
             st.subheader("🏗 Market Structure")
@@ -1284,55 +1534,139 @@ if run_btn:
         cp3.metric("Pos USDT",  f"${pos.get('pos_usdt','?')}")
         cp4.metric("Pos Units", f"{pos.get('pos_units','?')}")
 
-        df = res.get("df")
-        if df is not None:
-            st.subheader("📈 Price Chart")
-            tail = df.tail(200)
-            fig, ax = plt.subplots(figsize=(12, 5))
-            ax.plot(tail["timestamp"], tail["close"],
-                    color="#58a6ff", lw=1.5, label="Close")
-            ax.plot(tail["timestamp"], tail["EMA9"],
-                    color="#f0883e", ls="--", lw=1, label="EMA9")
-            ax.plot(tail["timestamp"], tail["EMA50"],
-                    color="#bc8cff", ls="-.", lw=1, label="EMA50")
-            ax.axhline(res["entry"], color="white",  ls=":",  lw=1,
-                       label=f"Entry {res['entry']:.4f}")
-            ax.axhline(res["sl"],    color="#f85149", ls="--", lw=1.5,
-                       label=f"SL {res['sl']:.4f}")
-            if res["tp"].get("TP1"):
-                ax.axhline(res["tp"]["TP1"], color="#2ea043", ls="--", lw=1.5,
-                           label=f"TP1 {res['tp']['TP1']:.4f}")
-            if res["tp"].get("TP2"):
-                ax.axhline(res["tp"]["TP2"], color="#56d364", ls=":", lw=1,
-                           label=f"TP2 {res['tp']['TP2']:.4f}")
+        # ── Price Chart — with Order Block Boxes ──────────────────────
+        df_plot = res.get("df")
+        if df_plot is not None:
+            st.subheader("📈 Price Chart  (Green = Demand Zone · Red = Stop Zone)")
+            tail = df_plot.tail(200).reset_index(drop=True)
+            ts   = tail["timestamp"]
+            n_candles = len(tail)
 
+            fig, ax = plt.subplots(figsize=(14, 6))
+            fig.patch.set_facecolor("#0d1117")
+            ax.set_facecolor("#161b22")
+
+            # Price line
+            ax.plot(ts, tail["close"],
+                    color="#58a6ff", lw=1.5, label="Close", zorder=3)
+            ax.plot(ts, tail["EMA9"],
+                    color="#f0883e", ls="--", lw=1, label="EMA9", zorder=2)
+            ax.plot(ts, tail["EMA50"],
+                    color="#bc8cff", ls="-.", lw=1, label="EMA50", zorder=2)
+
+            # ── Draw Order Block Boxes (like the chart screenshot) ────
+            ob_lookback = cfg["OB_LOOKBACK"]
+            x_start_idx = max(0, n_candles - ob_lookback)
+            x_start_ts  = ts.iloc[x_start_idx]
+            x_end_ts    = ts.iloc[-1]
+
+            for ob in res["bull_obs"]:
+                # Green box = Demand Zone
+                ax.axhspan(ob["ob_bottom"], ob["ob_top"],
+                           xmin=0.0, xmax=1.0,
+                           alpha=0.18, color="#2ea043", zorder=1)
+                ax.hlines([ob["ob_top"], ob["ob_bottom"]],
+                          xmin=x_start_ts, xmax=x_end_ts,
+                          colors="#2ea043", lw=0.8, ls="--", zorder=2)
+                ax.text(ts.iloc[-1], ob["ob_top"],
+                        f" 🟢 Demand {ob['ob_top']:.4f}",
+                        color="#2ea043", fontsize=7, va="bottom", zorder=5)
+                # Red box = SL zone (below demand)
+                sl_box_bottom = ob["sl_level"]
+                sl_box_top    = ob["ob_bottom"]
+                ax.axhspan(sl_box_bottom, sl_box_top,
+                           xmin=0.0, xmax=1.0,
+                           alpha=0.20, color="#f85149", zorder=1)
+                ax.hlines(sl_box_bottom,
+                          xmin=x_start_ts, xmax=x_end_ts,
+                          colors="#f85149", lw=0.8, ls=":", zorder=2)
+                ax.text(ts.iloc[-1], sl_box_bottom,
+                        f" 🔴 SL {sl_box_bottom:.4f}",
+                        color="#f85149", fontsize=7, va="top", zorder=5)
+
+            for ob in res["bear_obs"]:
+                # Red box = Supply Zone
+                ax.axhspan(ob["ob_bottom"], ob["ob_top"],
+                           xmin=0.0, xmax=1.0,
+                           alpha=0.18, color="#f85149", zorder=1)
+                ax.hlines([ob["ob_top"], ob["ob_bottom"]],
+                          xmin=x_start_ts, xmax=x_end_ts,
+                          colors="#f85149", lw=0.8, ls="--", zorder=2)
+                ax.text(ts.iloc[-1], ob["ob_top"],
+                        f" 🔴 Supply {ob['ob_top']:.4f}",
+                        color="#f85149", fontsize=7, va="bottom", zorder=5)
+                # Green box = SL zone above supply (for short)
+                sl_box_top    = ob["sl_level"]
+                sl_box_bottom = ob["ob_top"]
+                ax.axhspan(sl_box_bottom, sl_box_top,
+                           xmin=0.0, xmax=1.0,
+                           alpha=0.15, color="#f0883e", zorder=1)
+
+            # Entry / SL / TP lines
+            ax.axhline(res["entry"], color="white",   ls=":",  lw=1.2,
+                       label=f"Entry {res['entry']:.4f}", zorder=4)
+            ax.axhline(res["sl"],    color="#f85149", ls="--", lw=1.5,
+                       label=f"SL {res['sl']:.4f}", zorder=4)
+            if res["tp"].get("TP1"):
+                ax.axhline(res["tp"]["TP1"], color="#2ea043", ls="--",
+                           lw=1.5, label=f"TP1 {res['tp']['TP1']:.4f}",
+                           zorder=4)
+            if res["tp"].get("TP2"):
+                ax.axhline(res["tp"]["TP2"], color="#56d364", ls=":",
+                           lw=1, label=f"TP2 {res['tp']['TP2']:.4f}",
+                           zorder=4)
+
+            # Swing dots
             s = res["structure"]
             for idx, val in s.get("swing_highs",[])[-5:]:
-                ax.scatter(tail["timestamp"].iloc[min(idx, len(tail)-1)],
-                           val, color="red", s=30, zorder=5)
+                idx_c = min(idx, n_candles - 1)
+                ax.scatter(ts.iloc[idx_c], val,
+                           color="red", s=30, zorder=6)
             for idx, val in s.get("swing_lows",[])[-5:]:
-                ax.scatter(tail["timestamp"].iloc[min(idx, len(tail)-1)],
-                           val, color="green", s=30, zorder=5)
+                idx_c = min(idx, n_candles - 1)
+                ax.scatter(ts.iloc[idx_c], val,
+                           color="#2ea043", s=30, zorder=6)
 
-            ax.legend(fontsize=8)
-            ax.set_facecolor("#161b22")
-            fig.patch.set_facecolor("#0d1117")
+            # BOS label
+            if res["bos_type"] != "NONE":
+                bos_clr = "#2ea043" if res["bos_type"]=="BOS_UP" else "#f85149"
+                ax.text(ts.iloc[int(n_candles*0.02)],
+                        float(tail["close"].max()) * 0.999,
+                        f"  {res['bos_desc']}",
+                        color=bos_clr, fontsize=9, fontweight="bold", zorder=7)
+
+            # Legend & style
+            legend_patches = [
+                mpatches.Patch(color="#2ea043", alpha=0.5, label="Demand Zone (entry)"),
+                mpatches.Patch(color="#f85149", alpha=0.5, label="SL / Supply Zone"),
+            ]
+            handles, labels = ax.get_legend_handles_labels()
+            ax.legend(handles=handles + legend_patches,
+                      fontsize=7, loc="upper left",
+                      facecolor="#161b22", labelcolor="white")
             ax.tick_params(colors="#8b949e")
-            for spine in ax.spines.values(): spine.set_color("#30363d")
-            ax.grid(True, alpha=0.15)
+            for spine in ax.spines.values():
+                spine.set_color("#30363d")
+            ax.grid(True, alpha=0.12)
+            plt.xticks(rotation=20)
+            plt.tight_layout()
             st.pyplot(fig)
 
-        st.success("✅ Done! Adjust sidebar settings and re-run anytime.")
+        st.success("✅ Done! Green boxes = Demand Zones (entry). "
+                   "Red boxes = SL Zones. Adjust sidebar & re-run.")
 
 else:
     st.info("👈 Configure settings in sidebar, then click **Run Analysis**.")
     st.markdown("""
-    **V9 Improvements:**
-    - 🔐 5-user login system with hashed passwords
-    - 🧠 Ensemble model (Ridge + GBM + RF + XGBoost + LightGBM)
-    - 📊 Walk-forward validation (anti-overfit)
-    - ✅ `fetch_ohlcv` groupby timestamp bug fixed
-    - 🔬 26 features vs 12 in V8
-    - 📈 Price action features (body ratio, wick analysis, momentum)
-    - ✅ Streamlit Cloud safe (no background threads, proper caching)
+    **V9 Order Block Edition — What's New:**
+    - 📦 **ICT Order Block Detection** — Bullish & Bearish OBs
+    - 🟢 **Demand Zone (Green Box)** — Entry zone from OB strategy
+    - 🔴 **SL Zone (Red Box)** — Stop loss zone below demand (exactly like chart)
+    - 🔼 **Break of Structure (BOS)** — Trend confirmation
+    - 🎯 **OB-precise Stop Loss** — SL placed at OB bottom, not just ATR guess
+    - 📊 **OB Score (0–10)** — How strong is the OB setup?
+    - 🏆 **Tier Boost** — Strong OB automatically upgrades trade tier
+    - 🧠 **Ensemble ML** (Ridge + GBM + RF + XGBoost + LightGBM)
+    - 📈 **Walk-forward validation** (anti-overfit)
+    - 🔐 **5-user login** with hashed passwords
     """)
