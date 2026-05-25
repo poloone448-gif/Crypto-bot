@@ -3,6 +3,7 @@
 ║   CRYPTO BOT V9 · ENSEMBLE + ORDER BLOCK EDITION                      ║
 ║   ICT Order Block · Demand/Supply Zones · Break of Structure           ║
 ║   WITH 5-USER LOGIN SYSTEM                                             ║
+║   DATA LEAKAGE FIX: Scaler fit on train split only per fold           ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -441,15 +442,14 @@ def detect_order_blocks(df: pd.DataFrame):
             future_high = rec["high"].iloc[i+1:window].max()
             impulse = (future_high - c_close) / max(c_close, 1e-10)
             if impulse >= min_move:
-                # Is this OB mitigated? (price came back into zone)
                 last_close = float(rec["close"].iloc[-1])
                 mitigated  = last_close < c_open    # price broke back below OB top
 
                 bull_obs.append({
                     "idx":       i,
-                    "ob_top":    round(c_open,  8),   # top of OB (bearish candle open)
-                    "ob_bottom": round(c_low,   8),   # bottom of OB (low of candle)
-                    "sl_level":  round(c_low * 0.998, 8),  # SL just below OB
+                    "ob_top":    round(c_open,  8),
+                    "ob_bottom": round(c_low,   8),
+                    "sl_level":  round(c_low * 0.998, 8),
                     "timestamp": rec["timestamp"].iloc[i],
                     "impulse_pct": round(impulse * 100, 2),
                     "vol_ratio": round(volume / max(vol_ma, 1e-10), 2),
@@ -465,13 +465,13 @@ def detect_order_blocks(df: pd.DataFrame):
             impulse = (c_close - future_low) / max(c_close, 1e-10)
             if impulse >= min_move:
                 last_close = float(rec["close"].iloc[-1])
-                mitigated  = last_close > c_open     # price broke back above OB bottom
+                mitigated  = last_close > c_open
 
                 bear_obs.append({
                     "idx":       i,
-                    "ob_top":    round(c_high,  8),   # top of OB (high of bullish candle)
-                    "ob_bottom": round(c_open,  8),   # bottom of OB (open of bullish candle)
-                    "sl_level":  round(c_high * 1.002, 8),  # SL just above OB
+                    "ob_top":    round(c_high,  8),
+                    "ob_bottom": round(c_open,  8),
+                    "sl_level":  round(c_high * 1.002, 8),
                     "timestamp": rec["timestamp"].iloc[i],
                     "impulse_pct": round(impulse * 100, 2),
                     "vol_ratio": round(volume / max(vol_ma, 1e-10), 2),
@@ -492,9 +492,6 @@ def detect_order_blocks(df: pd.DataFrame):
 def detect_bos(df: pd.DataFrame, structure: dict):
     """
     Break of Structure (BOS) Detection.
-    A BOS confirms trend continuation after an Order Block retest.
-    BOS_UP   → price breaks above the last swing high  (bullish continuation)
-    BOS_DOWN → price breaks below the last swing low   (bearish continuation)
     """
     if not structure or structure["type"] in ("UNKNOWN",):
         return "NONE", "No BOS"
@@ -502,12 +499,10 @@ def detect_bos(df: pd.DataFrame, structure: dict):
     price      = float(df["close"].iloc[-1])
     prev_high  = structure.get("prev_high")
     prev_low   = structure.get("prev_low")
-    last_high  = structure.get("last_high")
-    last_low   = structure.get("last_low")
 
-    if prev_high and last_high and price > prev_high * 1.002:
+    if prev_high and price > prev_high * 1.002:
         return "BOS_UP",   f"🔼 BOS Up — broke {prev_high:.5f}"
-    if prev_low  and last_low  and price < prev_low  * 0.998:
+    if prev_low  and price < prev_low  * 0.998:
         return "BOS_DOWN", f"🔽 BOS Down — broke {prev_low:.5f}"
 
     if structure.get("breakout"):
@@ -521,7 +516,6 @@ def detect_bos(df: pd.DataFrame, structure: dict):
 def find_nearest_ob(price: float, bull_obs: list, bear_obs: list):
     """
     Find the Order Block that price is currently closest to or inside.
-    Returns (ob, side) where side = 'bull' or 'bear', or (None, None).
     """
     in_bull, in_bear = None, None
     min_dist_bull = min_dist_bear = float("inf")
@@ -532,7 +526,7 @@ def find_nearest_ob(price: float, bull_obs: list, bear_obs: list):
             if dist < min_dist_bull:
                 min_dist_bull = dist
                 in_bull = ob
-        elif price > ob["ob_bottom"] * 0.98:   # approaching from above
+        elif price > ob["ob_bottom"] * 0.98:
             dist = price - ob["ob_top"]
             if 0 <= dist < price * 0.02 and dist < min_dist_bull:
                 min_dist_bull = dist
@@ -561,7 +555,6 @@ def score_ob_signal(price: float, bull_obs: list, bear_obs: list,
                     bos_type: str, is_bull_signal: bool):
     """
     Score the Order Block signal quality (0–10).
-    High score = price is retesting a fresh strong OB with BOS confirmation.
     """
     pts, notes = 0.0, []
 
@@ -578,7 +571,6 @@ def score_ob_signal(price: float, bull_obs: list, bear_obs: list,
         notes.append(f"OB side mismatch ({ob['type']})")
         return 1.0, notes, ob
 
-    # Inside OB zone — best entry
     if side == "bull" and ob["ob_bottom"] <= price <= ob["ob_top"]:
         pts += 4.0; notes.append("✅ Price INSIDE Demand Zone")
     elif side == "bear" and ob["ob_bottom"] <= price <= ob["ob_top"]:
@@ -586,19 +578,16 @@ def score_ob_signal(price: float, bull_obs: list, bear_obs: list,
     else:
         pts += 2.0; notes.append("⚠️ Price approaching OB")
 
-    # Impulse strength
     if ob["impulse_pct"] >= 3.0:
         pts += 2.0; notes.append(f"Strong impulse {ob['impulse_pct']:.1f}%")
     elif ob["impulse_pct"] >= 1.5:
         pts += 1.0; notes.append(f"Moderate impulse {ob['impulse_pct']:.1f}%")
 
-    # Volume at OB
     if ob["vol_ratio"] >= 1.5:
         pts += 1.5; notes.append(f"High OB volume {ob['vol_ratio']:.1f}x")
     elif ob["vol_ratio"] >= 1.0:
         pts += 0.5; notes.append(f"Normal OB volume {ob['vol_ratio']:.1f}x")
 
-    # BOS confirmation
     bos_ok = (bos_type == "BOS_UP" and is_bull_signal) or \
              (bos_type == "BOS_DOWN" and not is_bull_signal)
     if bos_ok:
@@ -611,8 +600,27 @@ def score_ob_signal(price: float, bull_obs: list, bear_obs: list,
 
 
 # ══════════════════════════════════════════════════════════════════════
-# ENSEMBLE MODEL V9
+# ENSEMBLE MODEL V9  —  DATA LEAKAGE FIX
+#
+# ROOT CAUSE (original):
+#   RobustScaler.fit() was called on the FULL dataset (train + val + test).
+#   This means the scaler had knowledge of future price distributions when
+#   transforming the training window, and walk-forward folds all used the
+#   same globally-fitted scaler — a direct look-ahead leak.
+#
+# FIX APPLIED:
+#   1. build_features()  → returns RAW 3-D windows (N, seq_len, n_feats)
+#                          and raw y values. No scaler is fitted here.
+#   2. _fit_scaler_on_train() → fits ONE RobustScaler only on the training
+#                               rows, then transforms both train and val.
+#   3. build_ensemble()  → splits first, then calls _fit_scaler_on_train()
+#                          so the scaler never sees val/test data.
+#   4. walk_forward_validate() → fits a FRESH scaler per fold using only
+#                                that fold's training rows.
+#   5. ensemble_predict() → uses the scaler returned by build_ensemble(),
+#                           which was fitted on 80% train data only.
 # ══════════════════════════════════════════════════════════════════════
+
 FEATURE_COLS = [
     "close","RSI","MACD","MACD_Hist","ATR","OBV",
     "EMA9","EMA21","BB_Width","BB_Pos","Vol_Ratio","ADX",
@@ -621,7 +629,9 @@ FEATURE_COLS = [
     "CCI","WilliamsR","ROC","CVD20","Vol_Pct",
 ]
 
+
 def _clean_Xy(X: np.ndarray, y: np.ndarray):
+    """Impute NaN/Inf, remove rows where y is NaN, clip outliers."""
     X = np.where(np.isinf(X), np.nan, X)
     y = np.where(np.isinf(y), np.nan, y)
     col_medians = np.nanmedian(X, axis=0)
@@ -634,45 +644,111 @@ def _clean_Xy(X: np.ndarray, y: np.ndarray):
     X   = np.clip(X, -10 * std, 10 * std)
     return X, y
 
+
+def _apply_scaler_and_flatten(X_3d: np.ndarray,
+                               feat_scaler: RobustScaler,
+                               y_scaler: RobustScaler,
+                               y_raw: np.ndarray):
+    """
+    Scale a 3-D raw window array using pre-fitted scalers, flatten into
+    the feature vector expected by sklearn models, and scale y.
+
+    X_3d  : (N, seq_len, n_feats)  — raw values
+    Returns: X_2d (N, flat+stats), y_scaled (N,)
+    """
+    n, seq_len, n_feats = X_3d.shape
+
+    # Transform feature windows (scaler was fitted on train rows only)
+    flat_2d   = X_3d.reshape(-1, n_feats)
+    scaled_2d = feat_scaler.transform(flat_2d)
+    scaled_2d = np.nan_to_num(scaled_2d, nan=0.0, posinf=0.0, neginf=0.0)
+    scaled_3d = scaled_2d.reshape(n, seq_len, n_feats)
+
+    # Flatten + append rolling statistics (same structure as original)
+    flat  = scaled_3d.reshape(n, -1)
+    stats = np.concatenate([
+        scaled_3d.mean(axis=1),
+        scaled_3d.std(axis=1),
+        scaled_3d[:, -1, :] - scaled_3d[:, max(0, seq_len - 5):, :].mean(axis=1),
+    ], axis=1)
+    X_2d = np.concatenate([flat, stats], axis=1)
+
+    # Scale target
+    y_scaled = y_scaler.transform(y_raw.reshape(-1, 1)).ravel()
+    return X_2d, y_scaled
+
+
 def build_features(df: pd.DataFrame, seq_len: int = 60):
-    feats  = [c for c in FEATURE_COLS if c in df.columns]
+    """
+    Build raw (UNSCALED) sliding-window sequences.
+    Scaling is deferred to build_ensemble / walk_forward_validate so that
+    no future data contaminates the training distribution.
+
+    Returns
+    -------
+    X_raw  : np.ndarray  shape (N, seq_len, n_feats)  — raw values
+    y_raw  : np.ndarray  shape (N,)                   — raw close price
+    feats  : list[str]   — feature names
+    """
+    feats   = [c for c in FEATURE_COLS if c in df.columns]
     log.info(f"🧠 Features ({len(feats)}): {', '.join(feats[:8])}…")
+
     raw = df[feats].copy()
     raw = raw.ffill().bfill().fillna(0)
     raw = raw.replace([np.inf, -np.inf], 0)
-    scaler = RobustScaler()
-    scaled = scaler.fit_transform(raw.values)
-    scaled = np.nan_to_num(scaled, nan=0.0, posinf=0.0, neginf=0.0)
-    X, y = [], []
-    for i in range(seq_len, len(scaled)):
-        window = scaled[i-seq_len:i]
-        flat   = window.flatten()
-        stats  = np.concatenate([
-            window.mean(axis=0),
-            window.std(axis=0),
-            window[-1] - window[-5],
-        ])
-        row = np.concatenate([flat, stats])
-        X.append(row)
-        y.append(scaled[i, 0])
-    X_arr, y_arr = np.array(X), np.array(y)
-    X_arr, y_arr = _clean_Xy(X_arr, y_arr)
-    log.info(f"Feature matrix: {X_arr.shape}, samples: {len(y_arr)}")
-    return X_arr, y_arr, scaler, feats
+    raw_vals = raw.values.astype(float)
 
-def walk_forward_validate(X, y, n_splits=5):
-    fold_size = len(X) // (n_splits + 1)
+    X_windows, y_list = [], []
+    for i in range(seq_len, len(raw_vals)):
+        X_windows.append(raw_vals[i - seq_len : i])   # (seq_len, n_feats)
+        y_list.append(raw_vals[i, 0])                 # raw close
+
+    X_arr = np.array(X_windows, dtype=float)   # (N, seq_len, n_feats)
+    y_arr = np.array(y_list,    dtype=float)   # (N,)
+
+    log.info(f"Raw sequences: {X_arr.shape}, samples: {len(y_arr)}")
+    return X_arr, y_arr, feats
+
+
+def walk_forward_validate(X_raw: np.ndarray, y_raw: np.ndarray,
+                           n_splits: int = 5) -> float:
+    """
+    Walk-forward validation.
+    Each fold fits a FRESH feature scaler and target scaler on its own
+    training rows — no data leakage across folds.
+    """
+    n, seq_len, n_feats = X_raw.shape
+    fold_size = n // (n_splits + 1)
     maes = []
+
     for i in range(1, n_splits + 1):
         train_end = fold_size * i
         val_start = train_end
-        val_end   = min(val_start + fold_size, len(X))
-        if val_end <= val_start:
-            break
-        X_tr,  y_tr  = X[:train_end],  y[:train_end]
-        X_val, y_val = X[val_start:val_end], y[val_start:val_end]
+        val_end   = min(val_start + fold_size, n)
+
+        if val_end <= val_start or train_end < 10:
+            continue
+
+        X_tr_raw  = X_raw[:train_end]
+        X_val_raw = X_raw[val_start:val_end]
+        y_tr_raw  = y_raw[:train_end]
+        y_val_raw = y_raw[val_start:val_end]
+
+        # ── Fit scalers ONLY on this fold's training data ──────────
+        fold_feat_scaler = RobustScaler()
+        fold_feat_scaler.fit(X_tr_raw.reshape(-1, n_feats))
+
+        fold_y_scaler = RobustScaler()
+        fold_y_scaler.fit(y_tr_raw.reshape(-1, 1))
+
+        X_tr,  y_tr  = _apply_scaler_and_flatten(X_tr_raw,  fold_feat_scaler,
+                                                  fold_y_scaler, y_tr_raw)
+        X_val, y_val = _apply_scaler_and_flatten(X_val_raw, fold_feat_scaler,
+                                                  fold_y_scaler, y_val_raw)
+
         X_tr,  y_tr  = _clean_Xy(X_tr.copy(),  y_tr.copy())
         X_val, y_val = _clean_Xy(X_val.copy(), y_val.copy())
+
         if len(X_tr) < 10 or len(X_val) < 2:
             continue
         try:
@@ -682,13 +758,47 @@ def walk_forward_validate(X, y, n_splits=5):
             maes.append(mean_absolute_error(y_val, pred))
         except Exception as e:
             log.warning(f"WF fold {i} failed: {e}")
+
     return float(np.mean(maes)) if maes else 0.0
 
-def build_ensemble(X, y):
-    X, y   = _clean_Xy(X.copy(), y.copy())
-    split  = int(len(X) * 0.80)
-    X_tr,  X_val = X[:split],  X[split:]
-    y_tr,  y_val = y[:split],  y[split:]
+
+def build_ensemble(X_raw: np.ndarray, y_raw: np.ndarray):
+    """
+    Train ensemble models.  The feature scaler and target scaler are fitted
+    ONLY on the training split (first 80%), never on validation rows.
+
+    Returns
+    -------
+    trained      : dict  model_name → fitted model
+    norm_w       : dict  model_name → normalised weight
+    val_maes     : dict  model_name → validation MAE (in scaled space)
+    wf_mae       : float walk-forward MAE
+    feat_scaler  : RobustScaler fitted on train features
+    y_scaler     : RobustScaler fitted on train y
+    """
+    n, seq_len, n_feats = X_raw.shape
+    split = int(n * 0.80)
+
+    X_tr_raw  = X_raw[:split]
+    X_val_raw = X_raw[split:]
+    y_tr_raw  = y_raw[:split]
+    y_val_raw = y_raw[split:]
+
+    # ── Fit scalers on TRAINING data only — zero leakage ──────────────
+    feat_scaler = RobustScaler()
+    feat_scaler.fit(X_tr_raw.reshape(-1, n_feats))
+
+    y_scaler = RobustScaler()
+    y_scaler.fit(y_tr_raw.reshape(-1, 1))
+
+    X_tr,  y_tr  = _apply_scaler_and_flatten(X_tr_raw,  feat_scaler,
+                                              y_scaler,  y_tr_raw)
+    X_val, y_val = _apply_scaler_and_flatten(X_val_raw, feat_scaler,
+                                              y_scaler,  y_val_raw)
+
+    X_tr,  y_tr  = _clean_Xy(X_tr.copy(),  y_tr.copy())
+    X_val, y_val = _clean_Xy(X_val.copy(), y_val.copy())
+
     models = {
         "Ridge": Ridge(alpha=0.5),
         "GBM":   GradientBoostingRegressor(
@@ -707,34 +817,64 @@ def build_ensemble(X, y):
         models["LGB"] = LGBMRegressor(
             n_estimators=80, max_depth=4, learning_rate=0.05,
             subsample=0.8, random_state=42, verbose=-1, n_jobs=1)
+
     trained, weights, val_maes = {}, {}, {}
     for name, m in models.items():
         try:
             m.fit(X_tr, y_tr)
             pred = m.predict(X_val)
             mae  = mean_absolute_error(y_val, pred)
-            val_maes[name]  = mae
-            weights[name]   = 1.0 / max(mae, 1e-8)
-            trained[name]   = m
+            val_maes[name] = mae
+            weights[name]  = 1.0 / max(mae, 1e-8)
+            trained[name]  = m
             log.success(f"  {name}: MAE={mae:.5f}")
         except Exception as e:
             log.warning(f"  {name} failed: {e}")
-    total_w = sum(weights.values())
-    norm_w  = {k: v/total_w for k, v in weights.items()}
-    wf_mae = walk_forward_validate(X, y)
-    log.info(f"Walk-forward MAE: {wf_mae:.5f}")
-    return trained, norm_w, val_maes, wf_mae
 
-def ensemble_predict(trained, weights, X, scaler, feats):
-    inp         = X[-1:].reshape(1, -1)
+    total_w = sum(weights.values())
+    norm_w  = {k: v / total_w for k, v in weights.items()}
+
+    wf_mae = walk_forward_validate(X_raw, y_raw)
+    log.info(f"Walk-forward MAE: {wf_mae:.5f}")
+
+    return trained, norm_w, val_maes, wf_mae, feat_scaler, y_scaler
+
+
+def ensemble_predict(trained: dict, weights: dict,
+                     X_raw: np.ndarray,
+                     feat_scaler: RobustScaler,
+                     y_scaler: RobustScaler,
+                     feats: list) -> float:
+    """
+    Predict next close price for the last available window.
+    Uses the scalers returned by build_ensemble() (fitted on train only).
+    """
+    # Use only the last sample
+    X_last = X_raw[-1:]                                 # (1, seq_len, n_feats)
+    n, seq_len, n_feats = X_last.shape
+
+    scaled_2d = feat_scaler.transform(X_last.reshape(-1, n_feats))
+    scaled_2d = np.nan_to_num(scaled_2d, nan=0.0, posinf=0.0, neginf=0.0)
+    scaled_3d = scaled_2d.reshape(1, seq_len, n_feats)
+
+    flat  = scaled_3d.reshape(1, -1)
+    stats = np.concatenate([
+        scaled_3d.mean(axis=1),
+        scaled_3d.std(axis=1),
+        scaled_3d[:, -1, :] - scaled_3d[:, max(0, seq_len - 5):, :].mean(axis=1),
+    ], axis=1)
+    X_inp = np.concatenate([flat, stats], axis=1)
+    X_inp = np.nan_to_num(X_inp, nan=0.0, posinf=0.0, neginf=0.0)
+
     pred_scaled = 0.0
     for name, m in trained.items():
         w = weights.get(name, 0)
-        pred_scaled += w * float(m.predict(inp)[0])
-    n     = len(feats)
-    dummy = np.zeros((1, n))
-    dummy[0, 0] = pred_scaled
-    return float(scaler.inverse_transform(dummy)[0, 0])
+        pred_scaled += w * float(m.predict(X_inp)[0])
+
+    # Inverse-transform back to raw price space
+    pred_price = float(y_scaler.inverse_transform([[pred_scaled]])[0][0])
+    return pred_price
+
 
 # ══════════════════════════════════════════════════════════════════════
 # STRUCTURE ANALYSIS
@@ -1057,11 +1197,6 @@ def find_sr(df, lookback=100, gap_pct=0.005):
 def generate_signal_v9(df, pred_price, htf_bias, patterns,
                         bull_div, bear_div, whale_sc, structure,
                         ob_score, ob_side):
-    """
-    Enhanced signal engine — Order Block score adds weight to signal quality.
-    ob_score: 0–10 from OB engine
-    ob_side: 'bull', 'bear', or None
-    """
     last    = df.iloc[-1]
     price   = float(last["close"])
     chg_pct = (pred_price - price) / price * 100
@@ -1093,9 +1228,9 @@ def generate_signal_v9(df, pred_price, htf_bias, patterns,
     def score_side(is_bull):
         pts, active = 0.0, []
 
-        # ── Order Block Score (NEW — most important) ─────────────────
+        # ── Order Block Score ─────────────────────────────────────────
         if ob_side == ("bull" if is_bull else "bear") and ob_score >= 5:
-            pts += ob_score * 0.4           # up to +4 pts from OB
+            pts += ob_score * 0.4
             active.append(f"OB_Zone({ob_score:.1f})")
         elif ob_score >= 7 and ob_side is None:
             pts += 1.5; active.append("OB_near")
@@ -1172,10 +1307,6 @@ def generate_signal_v9(df, pred_price, htf_bias, patterns,
 # ══════════════════════════════════════════════════════════════════════
 def compute_tp_sl_v9(price, df, signal, strength, htf_bias,
                      nearest_ob=None):
-    """
-    If price is inside/near an Order Block, use OB top/bottom
-    as precise SL levels instead of ATR-based guess.
-    """
     if "HOLD" in signal:
         return price*0.98, {"TP1": price*1.02, "TP2": None}, {
             "rr_ratio": 0, "cancel_reason": "HOLD"}
@@ -1284,7 +1415,7 @@ def run_analysis():
         bull_div, bear_div = detect_divergences(df)
         structure = analyze_structure(df, cfg["STRUCT_LOOKBACK"])
 
-        # ── Order Block Analysis (NEW) ─────────────────────────────
+        # ── Order Block Analysis ───────────────────────────────────────
         log.info("📦 Detecting Order Blocks...")
         bull_obs, bear_obs = detect_order_blocks(df)
         bos_type, bos_desc = detect_bos(df, structure)
@@ -1302,22 +1433,23 @@ def run_analysis():
             log.info(f"Model gated — ADX={adx_val:.1f}<20 & no strong OB")
             pred_price = price
         else:
-            log.info("🧠 Building ensemble model...")
-            X, y, scaler, feats = build_features(df, cfg["SEQ_LEN"])
-            if len(X) < 50:
+            log.info("🧠 Building ensemble model (no data leakage)...")
+            # build_features returns RAW sequences — scaler fit inside build_ensemble
+            X_raw, y_raw, feats = build_features(df, cfg["SEQ_LEN"])
+            if len(X_raw) < 50:
                 log.warning("Not enough data for model")
                 pred_price = price
             else:
-                trained, weights, val_maes, wf_mae = build_ensemble(X, y)
-                pred_price = ensemble_predict(trained, weights, X,
-                                              scaler, feats)
+                trained, weights, val_maes, wf_mae, feat_scaler, y_scaler = \
+                    build_ensemble(X_raw, y_raw)
+                pred_price = ensemble_predict(
+                    trained, weights, X_raw, feat_scaler, y_scaler, feats)
                 log.success(
                     f"Prediction: {pred_price:.6f} "
                     f"({(pred_price-price)/price*100:+.2f}%)")
 
         ws_pre, wl_pre, wn_pre = whale_score(ob_res, wc_res, "BUY")
 
-        # Pre-score OB to pass into signal engine
         is_bull_guess = pred_price >= price
         ob_score_val, ob_score_notes, _ = score_ob_signal(
             price, bull_obs, bear_obs, bos_type, is_bull_guess)
@@ -1327,7 +1459,6 @@ def run_analysis():
             bull_div, bear_div, ws_pre, structure,
             ob_score_val, ob_side)
 
-        # Final OB score with actual signal direction
         is_bull_final = "BUY" in signal
         ob_score_f, ob_notes_f, active_ob = score_ob_signal(
             price, bull_obs, bear_obs, bos_type, is_bull_final)
@@ -1345,9 +1476,9 @@ def run_analysis():
         ob_bonus = ob_score_f >= 7
         if   rr>=2.5 and ws>=7 and sig_score>=8:           tier="A+"
         elif rr>=2.0 and ws>=5 and sig_score>=6:           tier="A"
-        elif rr>=2.0 and ob_bonus and sig_score>=5:        tier="A"   # OB boost
+        elif rr>=2.0 and ob_bonus and sig_score>=5:        tier="A"
         elif rr>=1.5 and ws>=3 and sig_score>=5:           tier="B"
-        elif rr>=1.5 and ob_bonus:                         tier="B"   # OB boost
+        elif rr>=1.5 and ob_bonus:                         tier="B"
         elif rr>=1.2:                                      tier="C"
         else:                                              tier="D"
 
@@ -1366,12 +1497,10 @@ def run_analysis():
             "htf_desc": htf_desc, "tp_info": tp_info,
             "patterns": patterns, "bull_div": bull_div,
             "bear_div": bear_div, "sig_reason": sig_reason,
-            # Order Block results
             "bull_obs": bull_obs, "bear_obs": bear_obs,
             "bos_type": bos_type, "bos_desc": bos_desc,
             "ob_score": ob_score_f, "ob_notes": ob_notes_f,
             "ob_side": ob_side, "active_ob": active_ob,
-            # Data
             "df": df, "df_htf": df_htf, "ob": ob_res, "wc": wc_res,
             "cancel": cancel, "pos": pos,
         }
@@ -1429,7 +1558,7 @@ if run_btn:
 
         st.markdown("---")
 
-        # ── ORDER BLOCK SECTION (NEW) ─────────────────────────────────
+        # ── ORDER BLOCK SECTION ───────────────────────────────────────
         st.subheader("📦 Order Block Analysis  (ICT / SMC Strategy)")
 
         ob_col1, ob_col2, ob_col3 = st.columns(3)
@@ -1454,12 +1583,10 @@ if run_btn:
             else:
                 st.metric("OB Zone", "None detected", "")
 
-        # OB notes
         if res.get("ob_notes"):
             for note in res["ob_notes"]:
                 st.caption(note)
 
-        # Bull OBs table
         with st.expander(f"🟢 Bullish Demand Zones ({len(res['bull_obs'])})",
                          expanded=len(res['bull_obs']) > 0):
             if res["bull_obs"]:
@@ -1477,7 +1604,6 @@ if run_btn:
             else:
                 st.info("No bullish demand zones found")
 
-        # Bear OBs table
         with st.expander(f"🔴 Bearish Supply Zones ({len(res['bear_obs'])})",
                          expanded=len(res['bear_obs']) > 0):
             if res["bear_obs"]:
@@ -1534,7 +1660,7 @@ if run_btn:
         cp3.metric("Pos USDT",  f"${pos.get('pos_usdt','?')}")
         cp4.metric("Pos Units", f"{pos.get('pos_units','?')}")
 
-        # ── Price Chart — with Order Block Boxes ──────────────────────
+        # ── Price Chart ───────────────────────────────────────────────
         df_plot = res.get("df")
         if df_plot is not None:
             st.subheader("📈 Price Chart  (Green = Demand Zone · Red = Stop Zone)")
@@ -1546,7 +1672,6 @@ if run_btn:
             fig.patch.set_facecolor("#0d1117")
             ax.set_facecolor("#161b22")
 
-            # Price line
             ax.plot(ts, tail["close"],
                     color="#58a6ff", lw=1.5, label="Close", zorder=3)
             ax.plot(ts, tail["EMA9"],
@@ -1554,14 +1679,12 @@ if run_btn:
             ax.plot(ts, tail["EMA50"],
                     color="#bc8cff", ls="-.", lw=1, label="EMA50", zorder=2)
 
-            # ── Draw Order Block Boxes (like the chart screenshot) ────
             ob_lookback = cfg["OB_LOOKBACK"]
             x_start_idx = max(0, n_candles - ob_lookback)
             x_start_ts  = ts.iloc[x_start_idx]
             x_end_ts    = ts.iloc[-1]
 
             for ob in res["bull_obs"]:
-                # Green box = Demand Zone
                 ax.axhspan(ob["ob_bottom"], ob["ob_top"],
                            xmin=0.0, xmax=1.0,
                            alpha=0.18, color="#2ea043", zorder=1)
@@ -1571,7 +1694,6 @@ if run_btn:
                 ax.text(ts.iloc[-1], ob["ob_top"],
                         f" 🟢 Demand {ob['ob_top']:.4f}",
                         color="#2ea043", fontsize=7, va="bottom", zorder=5)
-                # Red box = SL zone (below demand)
                 sl_box_bottom = ob["sl_level"]
                 sl_box_top    = ob["ob_bottom"]
                 ax.axhspan(sl_box_bottom, sl_box_top,
@@ -1585,7 +1707,6 @@ if run_btn:
                         color="#f85149", fontsize=7, va="top", zorder=5)
 
             for ob in res["bear_obs"]:
-                # Red box = Supply Zone
                 ax.axhspan(ob["ob_bottom"], ob["ob_top"],
                            xmin=0.0, xmax=1.0,
                            alpha=0.18, color="#f85149", zorder=1)
@@ -1595,14 +1716,12 @@ if run_btn:
                 ax.text(ts.iloc[-1], ob["ob_top"],
                         f" 🔴 Supply {ob['ob_top']:.4f}",
                         color="#f85149", fontsize=7, va="bottom", zorder=5)
-                # Green box = SL zone above supply (for short)
                 sl_box_top    = ob["sl_level"]
                 sl_box_bottom = ob["ob_top"]
                 ax.axhspan(sl_box_bottom, sl_box_top,
                            xmin=0.0, xmax=1.0,
                            alpha=0.15, color="#f0883e", zorder=1)
 
-            # Entry / SL / TP lines
             ax.axhline(res["entry"], color="white",   ls=":",  lw=1.2,
                        label=f"Entry {res['entry']:.4f}", zorder=4)
             ax.axhline(res["sl"],    color="#f85149", ls="--", lw=1.5,
@@ -1616,7 +1735,6 @@ if run_btn:
                            lw=1, label=f"TP2 {res['tp']['TP2']:.4f}",
                            zorder=4)
 
-            # Swing dots
             s = res["structure"]
             for idx, val in s.get("swing_highs",[])[-5:]:
                 idx_c = min(idx, n_candles - 1)
@@ -1627,7 +1745,6 @@ if run_btn:
                 ax.scatter(ts.iloc[idx_c], val,
                            color="#2ea043", s=30, zorder=6)
 
-            # BOS label
             if res["bos_type"] != "NONE":
                 bos_clr = "#2ea043" if res["bos_type"]=="BOS_UP" else "#f85149"
                 ax.text(ts.iloc[int(n_candles*0.02)],
@@ -1635,7 +1752,6 @@ if run_btn:
                         f"  {res['bos_desc']}",
                         color=bos_clr, fontsize=9, fontweight="bold", zorder=7)
 
-            # Legend & style
             legend_patches = [
                 mpatches.Patch(color="#2ea043", alpha=0.5, label="Demand Zone (entry)"),
                 mpatches.Patch(color="#f85149", alpha=0.5, label="SL / Supply Zone"),
@@ -1667,6 +1783,7 @@ else:
     - 📊 **OB Score (0–10)** — How strong is the OB setup?
     - 🏆 **Tier Boost** — Strong OB automatically upgrades trade tier
     - 🧠 **Ensemble ML** (Ridge + GBM + RF + XGBoost + LightGBM)
-    - 📈 **Walk-forward validation** (anti-overfit)
+    - 📈 **Walk-forward validation** (anti-overfit, per-fold scaler — no leakage)
     - 🔐 **5-user login** with hashed passwords
+    - ✅ **Data Leakage Fixed** — Scaler trained on past data only
     """)
